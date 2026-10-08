@@ -1,0 +1,6 @@
+{
+  "name": "EthioExam Prep & Live Learning Platform",
+  "description": "Comprehensive Ethiopian exam preparation for Grade 8 Regional Ministry, Grade 12 ESSLCE, and University Exit Exams with live classrooms, video lessons, documents, and AI study tools.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
