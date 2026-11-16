@@ -22,27 +22,30 @@ import {
   Loader2,
   Layers
 } from 'lucide-react';
-import { ExamLevel, SubjectInfo, Flashcard, Question, DocumentMaterial } from '../types';
+import { ExamLevel, SubjectInfo, Flashcard, Question, DocumentMaterial, Language } from '../types';
 
 interface AiStudyLabViewProps {
   selectedLevel: ExamLevel;
   subjects: SubjectInfo[];
   preloadedDoc?: DocumentMaterial | null;
+  language?: Language;
   onClearPreloadedDoc?: () => void;
   onAddGeneratedQuestionsToBank?: (questions: Question[]) => void;
   onAddGeneratedFlashcards?: (flashcards: Flashcard[]) => void;
 }
 
-type AiTab = 'explain' | 'quiz' | 'summary';
+type AiTab = 'explain' | 'quiz' | 'summary' | 'flashcards';
 
 export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
   selectedLevel,
   subjects,
   preloadedDoc,
+  language = 'en',
   onClearPreloadedDoc,
   onAddGeneratedQuestionsToBank,
+  onAddGeneratedFlashcards,
 }) => {
-  const [activeTab, setActiveTab] = useState<AiTab>(preloadedDoc ? 'quiz' : 'explain');
+  const [activeTab, setActiveTab] = useState<AiTab>('explain');
 
   // Filter subjects for the selected level so dropdown is clean and relevant
   const levelSubjects = subjects.filter(s => s.level === selectedLevel);
@@ -50,9 +53,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
 
   // Input states
   const [questionCount, setQuestionCount] = useState<number>(15);
-  const [questionInput, setQuestionInput] = useState<string>(
-    'A car accelerates uniformly from rest to 20 m/s in 5 seconds. What is the distance covered?'
-  );
+  const [questionInput, setQuestionInput] = useState<string>('');
   const [notesInput, setNotesInput] = useState<string>(preloadedDoc ? preloadedDoc.fullExcerpt : '');
   const [selectedSubject, setSelectedSubject] = useState<string>(
     preloadedDoc ? preloadedDoc.subject : (effectiveSubjects[0]?.name || 'Physics')
@@ -79,6 +80,8 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
   const [explanationResult, setExplanationResult] = useState<any | null>(null);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
   const [summaryResult, setSummaryResult] = useState<any | null>(null);
+  const [generatedFlashcards, setGeneratedFlashcards] = useState<Flashcard[]>([]);
+  const [flippedCards, setFlippedCards] = useState<Record<number, boolean>>({});
   const [quizUserAnswers, setQuizUserAnswers] = useState<Record<number, string>>({});
   const [copied, setCopied] = useState<boolean>(false);
   const [savedToBankNotice, setSavedToBankNotice] = useState<boolean>(false);
@@ -90,17 +93,21 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
     }
   }, [selectedLevel, effectiveSubjects]);
 
-  // Reactive listener: when preloadedDoc arrives (e.g. from Document Library or Video notes), auto-fill and auto-generate!
+  // Populate preloadedDoc without blocking UI with an unsolicited slow AI call
   useEffect(() => {
     if (preloadedDoc) {
       const excerpt = preloadedDoc.fullExcerpt || preloadedDoc.title || '';
       setNotesInput(excerpt);
       if (preloadedDoc.subject) {
-        setSelectedSubject(preloadedDoc.subject);
+        const matched = effectiveSubjects.find(s =>
+          s.name.toLowerCase() === preloadedDoc.subject.toLowerCase() ||
+          preloadedDoc.subject.toLowerCase().includes(s.name.toLowerCase()) ||
+          s.name.toLowerCase().includes(preloadedDoc.subject.toLowerCase())
+        );
+        setSelectedSubject(matched ? matched.name : preloadedDoc.subject);
       }
       setActiveTab('quiz');
-      // Auto-trigger generation so the student doesn't have to click twice
-      handleGenerateQuiz(excerpt, preloadedDoc.subject);
+      setFileSuccessNotice(`"${preloadedDoc.title}" loaded into AI Study Lab. Choose Quiz, Summary, Explain, or Flashcards.`);
     }
   }, [preloadedDoc]);
 
@@ -124,84 +131,171 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
     try {
       if (isText) {
         // Fast client-side read for plain text files
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const text = (e.target?.result as string) || '';
-          setNotesInput(text);
-          setUploadedFile({
-            file,
-            name: file.name,
-            size: file.size,
-            type: 'text',
-          });
-          setFileProcessing(false);
-          setFileSuccessNotice(`"${file.name}" loaded successfully (${(file.size / 1024).toFixed(1)} KB)`);
-          setActiveTab('quiz');
-        };
-        reader.onerror = () => {
-          setErrorMsg('Failed to read the text file.');
-          setFileProcessing(false);
-        };
-        reader.readAsText(file);
-      } else {
-        // PDF, Image or Document - read as DataURL to enable AI OCR & analysis
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const dataUrl = (e.target?.result as string) || '';
-          
-          setUploadedFile({
-            file,
-            name: file.name,
-            size: file.size,
-            type: isPdf ? 'pdf' : isImage ? 'image' : 'doc',
-            base64: dataUrl,
-            previewUrl: isImage ? dataUrl : undefined,
-          });
-
-          // Send to server AI to extract readable educational notes and formulas
-          try {
-            const res = await fetch('/api/ai/process-document', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                fileData: dataUrl,
-                fileName: file.name,
-                mimeType: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
-              }),
-            });
-
-            const data = await res.json();
-            if (data.extractedText) {
-              setNotesInput(data.extractedText);
-              if (data.suggestedSubject) {
-                const matched = effectiveSubjects.find(s => 
-                  s.name.toLowerCase() === data.suggestedSubject.toLowerCase() ||
-                  data.suggestedSubject.toLowerCase().includes(s.name.toLowerCase())
-                );
-                if (matched) setSelectedSubject(matched.name);
-              }
-              setFileSuccessNotice(data.summaryAmharic || `"${file.name}" analyzed and ready for study!`);
-              setActiveTab('quiz');
-            } else {
-              setNotesInput(`=== File: ${file.name} ===\n\nFile attached for AI study.`);
-              setFileSuccessNotice(`"${file.name}" attached successfully.`);
-            }
-          } catch (apiErr) {
-            console.warn('Document processing fallback:', apiErr);
-            setNotesInput(`=== Attached File: ${file.name} ===\n\nStudy material ready for question generation.`);
-            setFileSuccessNotice(`"${file.name}" attached.`);
-          } finally {
-            setFileProcessing(false);
-          }
-        };
-
-        reader.onerror = () => {
-          setErrorMsg('Could not read the selected file.');
-          setFileProcessing(false);
-        };
-
-        reader.readAsDataURL(file);
+        const text = await file.text();
+        setNotesInput(text);
+        setUploadedFile({
+          file,
+          name: file.name,
+          size: file.size,
+          type: 'text',
+        });
+        setFileProcessing(false);
+        setFileSuccessNotice(`"${file.name}" loaded successfully (${(file.size / 1024).toFixed(1)} KB)`);
+        setActiveTab('quiz');
+        return;
       }
+
+      if (isPdf) {
+        // Fast local text extraction via pdfjs-dist first (<150ms vs 10s+ server OCR upload)
+        const buffer = await file.arrayBuffer();
+        let localExtracted = '';
+        let pageCount = 0;
+
+        try {
+          const [pdfjs, workerMod] = await Promise.all([
+            import('pdfjs-dist'),
+            import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+          ]);
+          if (pdfjs.GlobalWorkerOptions) {
+            pdfjs.GlobalWorkerOptions.workerSrc = workerMod.default;
+          }
+          const pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+          pageCount = pdfDoc.numPages;
+          const pagesText: string[] = [];
+          const maxPages = Math.min(pageCount, 30);
+          for (let p = 1; p <= maxPages; p++) {
+            const pg = await pdfDoc.getPage(p);
+            const tc = await pg.getTextContent();
+            const txt = tc.items
+              .map((it: any) => ('str' in it ? it.str : ''))
+              .join(' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (txt) pagesText.push(`=== Page ${p} ===\n${txt}`);
+          }
+          localExtracted = pagesText.join('\n\n');
+        } catch (pdfErr) {
+          console.warn('Local PDF extraction fallback:', pdfErr);
+        }
+
+        // Convert to base64 only if needed for scanned OCR or explain-with-file
+        const dataUrl: string = await new Promise((resolve) => {
+          const r = new FileReader();
+          r.onload = (ev) => resolve((ev.target?.result as string) || '');
+          r.onerror = () => resolve('');
+          r.readAsDataURL(file);
+        });
+
+        setUploadedFile({
+          file,
+          name: file.name,
+          size: file.size,
+          type: 'pdf',
+          base64: localExtracted.length > 60 ? undefined : dataUrl,
+          previewUrl: undefined,
+        });
+
+        if (localExtracted.length > 60) {
+          setNotesInput(localExtracted);
+          setFileSuccessNotice(`"${file.name}" (${pageCount} pages) extracted locally in milliseconds! Ready for Quiz, Summary, Explain, or Flashcards.`);
+          setFileProcessing(false);
+          return;
+        }
+
+        // Scanned / image-heavy PDF: fall back to server OCR
+        try {
+          const res = await fetch('/api/ai/process-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileData: dataUrl,
+              fileName: file.name,
+              mimeType: 'application/pdf',
+            }),
+          });
+          const data = await res.json();
+          if (data.extractedText) {
+            setNotesInput(data.extractedText);
+            if (data.suggestedSubject) {
+              const matched = effectiveSubjects.find(s =>
+                s.name.toLowerCase() === data.suggestedSubject.toLowerCase() ||
+                data.suggestedSubject.toLowerCase().includes(s.name.toLowerCase())
+              );
+              if (matched) setSelectedSubject(matched.name);
+            }
+            setFileSuccessNotice(
+              data.summaryAmharic || `"${file.name}" analyzed successfully! Ready for AI study.`
+            );
+          } else {
+            setNotesInput(`=== File: ${file.name} ===\n\nFile attached for AI study.`);
+            setFileSuccessNotice(`"${file.name}" attached successfully.`);
+          }
+        } catch {
+          setNotesInput(`=== Attached File: ${file.name} ===\n\nStudy material ready for question generation.`);
+          setFileSuccessNotice(`"${file.name}" attached.`);
+        } finally {
+          setFileProcessing(false);
+        }
+        return;
+      }
+
+      // Image or binary document - read as DataURL for AI OCR & analysis
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = (e.target?.result as string) || '';
+
+        setUploadedFile({
+          file,
+          name: file.name,
+          size: file.size,
+          type: isImage ? 'image' : 'doc',
+          base64: dataUrl,
+          previewUrl: isImage ? dataUrl : undefined,
+        });
+
+        try {
+          const res = await fetch('/api/ai/process-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileData: dataUrl,
+              fileName: file.name,
+              mimeType: file.type || 'image/jpeg',
+            }),
+          });
+
+          const data = await res.json();
+          if (data.extractedText) {
+            setNotesInput(data.extractedText);
+            if (data.suggestedSubject) {
+              const matched = effectiveSubjects.find(s =>
+                s.name.toLowerCase() === data.suggestedSubject.toLowerCase() ||
+                data.suggestedSubject.toLowerCase().includes(s.name.toLowerCase())
+              );
+              if (matched) setSelectedSubject(matched.name);
+            }
+            setFileSuccessNotice(
+              data.summaryAmharic || `"${file.name}" analyzed successfully! Ready for AI explanation, quiz, or summary.`
+            );
+          } else {
+            setNotesInput(`=== File: ${file.name} ===\n\nFile attached for AI study.`);
+            setFileSuccessNotice(`"${file.name}" attached successfully.`);
+          }
+        } catch (apiErr) {
+          console.warn('Document processing fallback:', apiErr);
+          setNotesInput(`=== Attached File: ${file.name} ===\n\nStudy material ready for question generation.`);
+          setFileSuccessNotice(`"${file.name}" attached.`);
+        } finally {
+          setFileProcessing(false);
+        }
+      };
+
+      reader.onerror = () => {
+        setErrorMsg('Could not read the selected file.');
+        setFileProcessing(false);
+      };
+
+      reader.readAsDataURL(file);
     } catch (err) {
       console.error('File process error:', err);
       setErrorMsg('Failed to process file. Please try again.');
@@ -217,11 +311,13 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
     }
   };
 
-  // 1. Explain Question
+  // 1. Explain Question (Fully grounded in uploaded document context & fileData)
   const handleExplainQuestion = async (overrideQ?: string) => {
-    const qToExplain = overrideQ || questionInput;
-    if (!qToExplain.trim()) {
-      setErrorMsg('Please enter a question to explain.');
+    const qToExplain = (overrideQ !== undefined ? overrideQ : questionInput).trim() ||
+      (uploadedFile ? `Explain and solve the questions and key concepts in "${uploadedFile.name}".` : '');
+    
+    if (!qToExplain && !uploadedFile && !notesInput.trim()) {
+      setErrorMsg('Please enter a question or upload a file to explain.');
       return;
     }
     setLoading(true);
@@ -233,11 +329,13 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: qToExplain,
+          question: qToExplain || `Explain and solve the questions and key concepts in "${uploadedFile?.name || 'the uploaded material'}".`,
           subject: selectedSubject,
           gradeLevel: selectedLevel.replace(/_/g, ' ').toUpperCase(),
           fileData: uploadedFile?.base64,
-          mimeType: uploadedFile?.file?.type,
+          mimeType: uploadedFile?.file?.type || (uploadedFile?.type === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+          fileName: uploadedFile?.name,
+          documentContext: notesInput, // Critical: Passes extracted document context so AI matches the file perfectly!
         }),
       });
 
@@ -251,7 +349,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
     }
   };
 
-  // 2. Generate Practice Quiz
+  // 2. Generate Practice Quiz (Directly from uploaded file & notes)
   const handleGenerateQuiz = async (overrideText?: string, overrideSubject?: string, countOverride?: number) => {
     const subj = overrideSubject || selectedSubject;
     const countToUse = countOverride !== undefined ? countOverride : questionCount;
@@ -274,7 +372,8 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
           gradeLevel: selectedLevel.replace(/_/g, ' ').toUpperCase(),
           count: countToUse,
           fileData: uploadedFile?.base64,
-          mimeType: uploadedFile?.file?.type,
+          mimeType: uploadedFile?.file?.type || (uploadedFile?.type === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+          fileName: uploadedFile?.name,
         }),
       });
 
@@ -309,7 +408,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
     }
   };
 
-  // 3. Summarize Notes
+  // 3. Summarize Notes (Directly from uploaded file & notes)
   const handleSummarize = async () => {
     const textToUse = notesInput.trim() || `Core summary and exam formulas for ${selectedSubject} in ${selectedLevel.replace(/_/g, ' ')}.`;
     setLoading(true);
@@ -326,7 +425,8 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
           subject: selectedSubject,
           gradeLevel: selectedLevel.replace(/_/g, ' ').toUpperCase(),
           fileData: uploadedFile?.base64,
-          mimeType: uploadedFile?.file?.type,
+          mimeType: uploadedFile?.file?.type || (uploadedFile?.type === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+          fileName: uploadedFile?.name,
         }),
       });
 
@@ -335,6 +435,53 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
     } catch (err) {
       console.error(err);
       setErrorMsg('Failed to create summary. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 4. Generate Active Recall Flashcards
+  const handleGenerateFlashcards = async (count: number = 8) => {
+    const textToUse = notesInput.trim() || `Key definitions, formulas, and concepts for ${selectedSubject} (${selectedLevel.replace(/_/g, ' ')}).`;
+    setLoading(true);
+    setErrorMsg(null);
+    setGeneratedFlashcards([]);
+    setFlippedCards({});
+
+    try {
+      const res = await fetch('/api/ai/generate-flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: textToUse,
+          subject: selectedSubject,
+          gradeLevel: selectedLevel.replace(/_/g, ' ').toUpperCase(),
+          count,
+        }),
+      });
+      const data = await res.json();
+      if (Array.isArray(data.flashcards) && data.flashcards.length > 0) {
+        const subjectId = effectiveSubjects.find(s => s.name === selectedSubject)?.id || 'gen';
+        const formatted: Flashcard[] = data.flashcards.map((c: any, idx: number) => ({
+          id: c.id || `ai-fc-${Date.now()}-${idx}`,
+          front: c.front,
+          back: c.back,
+          subjectId,
+          level: selectedLevel,
+          topic: c.topic || selectedSubject,
+          difficulty: c.difficulty || 'Medium',
+          mastered: false,
+        }));
+        setGeneratedFlashcards(formatted);
+        if (onAddGeneratedFlashcards) {
+          onAddGeneratedFlashcards(formatted);
+        }
+      } else {
+        setErrorMsg('Could not generate flashcards. Please try again.');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Failed to generate flashcards. Please check network connection.');
     } finally {
       setLoading(false);
     }
@@ -357,7 +504,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Header matching Learnova screenshot */}
+      {/* AI Learning Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-500 to-purple-600 flex items-center justify-center text-white shadow-sm shrink-0">
@@ -390,7 +537,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
         </div>
       </div>
 
-      {/* Main 2-Column AI Layout (From Learnova screenshot) */}
+      {/* Main 2-Column AI Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: AI Assistant (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
@@ -424,10 +571,10 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
                 </div>
                 <div>
                   <div className="text-xs font-bold text-violet-900">
-                    Reading & analyzing file with AI...
+                    {language === 'am' ? 'ፋይሉን በ AI እያነበበና እየተነተነ ነው...' : 'Reading & analyzing file with AI...'}
                   </div>
                   <div className="text-[11px] text-violet-600 mt-0.5">
-                    ፋይሉን እያነበበ ቁልፍ ነጥቦችንና ቀመሮችን እያወጣ ነው፤ እባክዎ ትንሽ ይጠብቁ...
+                    {language === 'am' ? 'ፋይሉን እያነበበ ቁልፍ ነጥቦችንና ቀመሮችን እያወጣ ነው፤ እባክዎ ትንሽ ይጠብቁ...' : 'Extracting key formulas, core concepts, and high-yield exam takeaways...'}
                   </div>
                 </div>
               </div>
@@ -485,6 +632,19 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      setActiveTab('explain');
+                      handleExplainQuestion(
+                        questionInput || `Explain and solve the questions and key concepts in "${uploadedFile.name}".`
+                      );
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Explain / Solve File</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       setActiveTab('quiz');
                       handleGenerateQuiz(notesInput, selectedSubject);
                     }}
@@ -510,7 +670,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
                     className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-slate-900 text-[11px] font-medium transition flex items-center gap-1.5 ml-auto cursor-pointer"
                   >
                     <Eye className="w-3.5 h-3.5" />
-                    <span>{showRawExtractedText ? 'Hide Text' : 'View Text'}</span>
+                    <span>{showRawExtractedText ? 'Hide File Text' : 'View File Text'}</span>
                   </button>
                 </div>
               </div>
@@ -562,7 +722,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-2xs transition cursor-pointer"
                   >
                     <UploadCloud className="w-3.5 h-3.5" />
-                    <span>Browse File (ፋይል ምረጥ)</span>
+                    <span>Browse File</span>
                   </button>
                   <button
                     type="button"
@@ -602,42 +762,88 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
             )}
 
             {/* Prompt input */}
-            {(!uploadedFile || showRawExtractedText) && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 block">
-                    {uploadedFile 
-                      ? 'Extracted Study Notes / Document Content:' 
-                      : activeTab === 'explain' 
-                      ? 'Question or Problem to Explain:' 
-                      : 'Topic or Study Material:'}
-                  </label>
-                  {uploadedFile && (
-                    <span className="text-[11px] text-slate-400">
-                      Editable • AI extracted
-                    </span>
+            <div className="space-y-3">
+              {uploadedFile && activeTab === 'explain' ? (
+                <>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Question about "{uploadedFile.name}":</span>
+                      </label>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                        📎 File Context Active
+                      </span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={questionInput}
+                      onChange={(e) => setQuestionInput(e.target.value)}
+                      placeholder={`Ask anything about "${uploadedFile.name}" (e.g. "Explain question 2", "How do I solve problem 3?", "Summarize main formulas")...`}
+                      className="w-full p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:outline-none focus:border-violet-500 placeholder:text-slate-400 font-medium"
+                    />
+                  </div>
+
+                  {showRawExtractedText && (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-slate-600 block">
+                          Extracted Content from {uploadedFile.name} (Used by AI as context):
+                        </label>
+                        <span className="text-[10px] text-slate-400">Editable Context</span>
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={notesInput}
+                        onChange={(e) => setNotesInput(e.target.value)}
+                        className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 text-[11px] focus:outline-none focus:border-violet-500 font-mono"
+                      />
+                    </div>
                   )}
-                </div>
-                <textarea
-                  rows={4}
-                  value={activeTab === 'explain' ? questionInput : notesInput}
-                  onChange={(e) => {
-                    if (activeTab === 'explain') {
-                      setQuestionInput(e.target.value);
-                    } else {
-                      setNotesInput(e.target.value);
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      {uploadedFile
+                        ? activeTab === 'quiz'
+                          ? `Study Material from "${uploadedFile.name}" (Quiz will be generated from this):`
+                          : `Content from "${uploadedFile.name}" to Summarize:`
+                        : activeTab === 'explain'
+                        ? 'Question or Problem to Explain:'
+                        : 'Topic or Study Material:'}
+                    </label>
+                    {uploadedFile && (
+                      <span className="text-[11px] text-slate-400">
+                        Editable • AI extracted
+                      </span>
+                    )}
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={activeTab === 'explain' ? questionInput : notesInput}
+                    onChange={(e) => {
+                      if (activeTab === 'explain') {
+                        setQuestionInput(e.target.value);
+                      } else {
+                        setNotesInput(e.target.value);
+                      }
+                    }}
+                    placeholder={
+                      activeTab === 'explain'
+                        ? 'Ask any question, paste textbook excerpt, or type a concept...'
+                        : 'Paste notes or type topic...'
                     }
-                  }}
-                  placeholder="Ask any question, paste textbook excerpt, or type a concept..."
-                  className="w-full p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:outline-none focus:border-violet-500 placeholder:text-slate-400 font-medium"
-                />
-              </div>
-            )}
+                    className="w-full p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:outline-none focus:border-violet-500 placeholder:text-slate-400 font-medium"
+                  />
+                </div>
+              )}
+            </div>
 
             {/* Action buttons */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 border border-slate-200 text-xs">
-                {(['explain', 'quiz', 'summary'] as const).map((tab) => (
+              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 border border-slate-200 text-xs flex-wrap">
+                {(['explain', 'quiz', 'summary', 'flashcards'] as const).map((tab) => (
                   <button
                     key={tab}
                     type="button"
@@ -648,7 +854,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    {tab === 'explain' ? 'Explain' : tab === 'quiz' ? 'Quiz' : 'Summary'}
+                    {tab === 'explain' ? 'Explain' : tab === 'quiz' ? 'Quiz' : tab === 'summary' ? 'Summary' : 'Flashcards'}
                   </button>
                 ))}
               </div>
@@ -659,6 +865,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
                 onClick={() => {
                   if (activeTab === 'explain') handleExplainQuestion();
                   else if (activeTab === 'quiz') handleGenerateQuiz();
+                  else if (activeTab === 'flashcards') handleGenerateFlashcards();
                   else handleSummarize();
                 }}
                 className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold text-xs shadow-md transition flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
@@ -674,7 +881,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
           </div>
         </div>
 
-        {/* Right Column: "What can I do?" (5 cols) - Matches Learnova screenshot */}
+        {/* Right Column: "What can I do?" (5 cols) */}
         <div className="lg:col-span-5 space-y-4">
           <div className="rounded-2xl bg-white border border-slate-200/80 p-6 shadow-xs space-y-4">
             <h3 className="text-base font-black text-slate-900">
@@ -730,12 +937,12 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
                 {
                   id: 'flashcards',
                   title: '5. Create Flashcards',
-                  desc: 'Study smarter, remember longer',
+                  desc: 'Active recall flip-cards for fast revision',
                   icon: BookOpen,
                   color: 'text-rose-600 bg-rose-50',
                   action: () => {
-                    setActiveTab('quiz');
-                    handleGenerateQuiz();
+                    setActiveTab('flashcards');
+                    handleGenerateFlashcards();
                   }
                 },
                 {
@@ -787,14 +994,26 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
       {activeTab === 'explain' && (
         <div className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4 shadow-xs">
           <div>
-            <label className="text-xs font-bold text-slate-800 mb-1.5 block">
-              Type or paste your question:
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-slate-800 block">
+                {uploadedFile ? `Question about attached "${uploadedFile.name}":` : 'Type or paste your question:'}
+              </label>
+              {uploadedFile && (
+                <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  <span>File context active</span>
+                </span>
+              )}
+            </div>
             <textarea
               rows={3}
               value={questionInput}
               onChange={(e) => setQuestionInput(e.target.value)}
-              placeholder="e.g. A particle of mass 2kg is moving with velocity..."
+              placeholder={
+                uploadedFile
+                  ? `Ask any question about "${uploadedFile.name}" (e.g. "Explain question 2", "How do I solve problem 3?", "Clarify key formulas")...`
+                  : 'e.g. A particle of mass 2kg is moving with velocity...'
+              }
               className="w-full p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-sm focus:outline-none focus:border-emerald-500 placeholder:text-slate-400"
             />
           </div>
@@ -890,7 +1109,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
               {explanationResult.amharicSummary && (
                 <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-1">
                   <div className="font-bold text-emerald-800 font-['Noto_Sans_Ethiopic']">
-                    የአማርኛ ማብራሪያ (Amharic Note)
+                    {language === 'am' ? 'የአማርኛ ማብራሪያ' : 'Amharic Contextual Explanation'}
                   </div>
                   <p className="text-slate-700 font-['Noto_Sans_Ethiopic'] leading-relaxed">
                     {explanationResult.amharicSummary}
@@ -957,7 +1176,7 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
               <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-emerald-600" />
-                Select Question Count (የጥያቄዎች ብዛት):
+                Select Question Count:
               </label>
               <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
                 <Sparkles className="w-3 h-3 text-emerald-600" />
@@ -1201,6 +1420,71 @@ export const AiStudyLabView: React.FC<AiStudyLabViewProps> = ({
                   💡 <strong>Ethiopian Exam Alert:</strong> {summaryResult.examTips}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 4: ACTIVE RECALL FLASHCARDS */}
+      {activeTab === 'flashcards' && (
+        <div className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Active Recall Study Flashcards</h4>
+              <p className="text-xs text-slate-500">Click any card to flip between prompt and exam-ready answer.</p>
+            </div>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => handleGenerateFlashcards(8)}
+              className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+            >
+              {loading ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Generating Flashcards...</span>
+                </>
+              ) : (
+                <>
+                  <BookOpen className="w-4 h-4" />
+                  <span>Generate 8 Flashcards</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {generatedFlashcards.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              {generatedFlashcards.map((card, idx) => {
+                const isFlipped = !!flippedCards[idx];
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => setFlippedCards(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                    className={`text-left p-5 rounded-2xl border transition min-h-[150px] flex flex-col justify-between cursor-pointer ${
+                      isFlipped
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                        : 'bg-slate-50 hover:bg-violet-50/40 border-slate-200 text-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600">
+                        {isFlipped ? 'Answer' : `Card ${idx + 1} • ${card.topic}`}
+                      </span>
+                      <span className="text-[10px] font-semibold text-violet-700">
+                        Click to flip
+                      </span>
+                    </div>
+                    <div className="text-xs sm:text-sm font-semibold leading-relaxed whitespace-pre-line">
+                      {isFlipped ? card.back : card.front}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-3 font-mono">
+                      Difficulty: {card.difficulty}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

@@ -10,6 +10,7 @@ import {
   Video, 
   Share2, 
   Maximize2, 
+  Minimize2, 
   Play, 
   Pause, 
   Mic, 
@@ -25,6 +26,7 @@ import {
   CheckCircle2,
   BarChart2,
   Check,
+  Shield,
   PenTool,
   Eraser,
   Trash2,
@@ -60,9 +62,23 @@ import {
   Highlighter,
   ChevronDown,
   LogOut,
-  PhoneOff
+  PhoneOff,
+  Pin,
+  AlertTriangle,
+  Paperclip,
+  MoreVertical,
+  Reply,
+  ArrowLeft,
+  Globe,
+  Settings as SettingsIcon,
+  Search,
+  Filter,
+  CornerDownRight,
+  MessageCircle
 } from 'lucide-react';
-import { LiveClass, LiveChatMessage, ExamLevel, AppUser, LiveSlide, VideoLesson } from '../types';
+import { LiveClass, LiveChatMessage, ExamLevel, AppUser, LiveSlide, VideoLesson, Language, DocumentMaterial } from '../types';
+import { DOCUMENTS_DATA } from '../data/mockData';
+import { TRANSLATIONS, getTranslation, TranslationKey } from '../utils/translations';
 import { saveRecordedVideoBlob, deleteRecordedVideoBlob } from '../utils/recordedVideoStorage';
 import { 
   LiveClassroomClient, 
@@ -105,6 +121,8 @@ interface LiveTeacherVideoProps {
   onFlipCamera?: () => void;
   onToggleMirror?: () => void;
   facingMode?: 'user' | 'environment';
+  language?: Language;
+  isStartingCamera?: boolean;
 }
 
 // Visual Animated Equalizer Wave Bars for Live Microphone Speech Detection
@@ -151,43 +169,48 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
   onFlipCamera,
   onToggleMirror,
   facingMode = 'user',
+  language = 'en',
+  isStartingCamera = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const hasLiveVideoTrack = Boolean(
+    stream &&
+    stream.getVideoTracks().some((t) => t.readyState !== 'ended' && t.enabled)
+  );
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    if (stream && camActive) {
-      video.srcObject = stream;
+    if (stream && camActive && hasLiveVideoTrack) {
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
       video.muted = true;
       video.defaultMuted = true;
       video.playsInline = true;
-      video.setAttribute('playsinline', 'true');
-      video.setAttribute('muted', 'true');
-      video.setAttribute('autoplay', 'true');
 
-      const onMeta = () => {
-        video.play().catch((err) => {
-          console.warn('Video auto-play interrupted:', err);
-        });
+      const tryPlay = () => {
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
       };
 
-      video.addEventListener('loadedmetadata', onMeta);
-      video.play().catch(() => {});
+      video.addEventListener('loadedmetadata', tryPlay);
+      video.addEventListener('canplay', tryPlay);
+      tryPlay();
 
       return () => {
-        video.removeEventListener('loadedmetadata', onMeta);
+        video.removeEventListener('loadedmetadata', tryPlay);
+        video.removeEventListener('canplay', tryPlay);
       };
-    } else {
+    } else if (video.srcObject) {
       video.srcObject = null;
     }
-  }, [stream, camActive]);
+  }, [stream, camActive, hasLiveVideoTrack]);
 
-  const hasLiveVideoTrack = Boolean(
-    stream &&
-    stream.getVideoTracks().some((t) => t.readyState === 'live' && t.enabled)
-  );
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
 
   return (
     <div className={`relative w-full h-full bg-slate-950 flex items-center justify-center overflow-hidden select-none ${className}`}>
@@ -196,13 +219,7 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
         <div className="relative w-full h-full flex items-center justify-center">
           <video
             id="teacher-live-webcam-video"
-            ref={(node) => {
-              videoRef.current = node;
-              if (node && stream && node.srcObject !== stream) {
-                node.srcObject = stream;
-                node.play().catch(() => {});
-              }
-            }}
+            ref={videoRef}
             autoPlay
             playsInline
             muted
@@ -210,11 +227,13 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
             style={{ transform: isMirrored ? 'scaleX(-1)' : 'none' }}
           />
 
-          {/* Quick Floating Camera Controls Overlay */}
-          <div className="absolute top-3 left-3 z-30 flex items-center gap-1.5 bg-black/75 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/20 shadow-lg text-[11px] text-white">
+          {/* Compact Bottom-Right Camera Controls Overlay */}
+          <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 bg-black/75 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/20 shadow-lg text-[11px] text-white">
             <span className="font-bold flex items-center gap-1 text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              {facingMode === 'user' ? '🤳 የፊት ካሜራ (Front)' : '📷 የጀርባ ካሜራ (Back)'}
+              {facingMode === 'user'
+                ? (language === 'am' ? 'የፊት ካሜራ' : 'Front')
+                : (language === 'am' ? 'የጀርባ ካሜራ' : 'Back')}
             </span>
 
             {onSwitchToFrontCamera && facingMode !== 'user' && (
@@ -222,9 +241,9 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
                 type="button"
                 onClick={onSwitchToFrontCamera}
                 className="px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-bold transition cursor-pointer"
-                title="ወደ የፊት-ለፊት ካሜራ ቀይር (Switch to Front Camera)"
+                title={language === 'am' ? 'ወደ የፊት ካሜራ ቀይር' : 'Switch to Front Camera'}
               >
-                ወደ ፊት ቀይር
+                {language === 'am' ? 'ፊት' : 'Front'}
               </button>
             )}
 
@@ -233,9 +252,9 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
                 type="button"
                 onClick={onSwitchToBackCamera}
                 className="px-2 py-0.5 rounded-lg bg-slate-700 hover:bg-slate-600 font-bold transition cursor-pointer"
-                title="ወደ የጀርባ ካሜራ ቀይር (Switch to Back Camera)"
+                title={language === 'am' ? 'ወደ የጀርባ ካሜራ ቀይር' : 'Switch to Back Camera'}
               >
-                ጀርባ
+                {language === 'am' ? 'ጀርባ' : 'Back'}
               </button>
             )}
 
@@ -244,10 +263,9 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
                 type="button"
                 onClick={onFlipCamera}
                 className="px-2 py-0.5 rounded-lg bg-sky-600 hover:bg-sky-500 font-bold transition cursor-pointer flex items-center gap-1"
-                title="ካሜራ ቀይር (Flip / Switch Camera)"
+                title={language === 'am' ? 'ካሜራ አዙር' : 'Flip Camera'}
               >
                 <RefreshCw className="w-3 h-3" />
-                <span>አዙር</span>
               </button>
             )}
 
@@ -256,9 +274,9 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
                 type="button"
                 onClick={onToggleMirror}
                 className="px-1.5 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 transition cursor-pointer"
-                title="Mirror Camera Video (መስታወት ገልብጥ)"
+                title={language === 'am' ? 'መስታወት ገልብጥ' : 'Mirror Video'}
               >
-                {isMirrored ? '🪞 መስታወት' : 'መደበኛ'}
+                {isMirrored ? '🪞' : 'Normal'}
               </button>
             )}
           </div>
@@ -273,7 +291,9 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
                 <img src={photoUrl} alt={teacherName} className="w-full h-full object-cover" />
               </div>
               <p className="text-white text-sm font-bold">{teacherName}</p>
-              <p className="text-emerald-400 text-xs mt-1">የተሰቀለ ፎቶ በቀጥታ ስርጭት ላይ ነው (Photo Active)</p>
+              <p className="text-emerald-400 text-xs mt-1">
+                {language === 'am' ? 'የተሰቀለው ፎቶ አገልግሎት ላይ ነው' : 'Uploaded photo is active'}
+              </p>
               <div className="mt-3 flex items-center gap-2">
                 <button
                   type="button"
@@ -281,7 +301,7 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
                   className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md"
                 >
                   <Video className="w-3.5 h-3.5" />
-                  <span>🤳 የቀጥታ ካሜራ ክፈት</span>
+                  <span>{language === 'am' ? '🤳 ካሜራ ክፈት' : '🤳 Turn On Camera'}</span>
                 </button>
                 {onUploadPhoto && (
                   <button
@@ -290,7 +310,7 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
                     className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition cursor-pointer flex items-center gap-1.5"
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    <span>ፎቶ ቀይር</span>
+                    <span>{language === 'am' ? 'ፎቶ ቀይር' : 'Change Photo'}</span>
                   </button>
                 )}
               </div>
@@ -303,61 +323,83 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
               </div>
 
               <h3 className="text-white text-base sm:text-lg font-black tracking-tight mb-1">
-                የፊት ካሜራዎን ያብሩ (Show Your Face)
+                {language === 'am' ? 'የፊት ካሜራዎን ያብሩ' : 'Turn On Camera'}
               </h3>
               <p className="text-slate-300 text-xs sm:text-sm mb-5 leading-relaxed">
-                ተማሪዎች እርስዎን በቀጥታ እንዲያዩ የፊት-ለፊት (Front / Selfie) ካሜራዎን ይክፈቱ።
+                {language === 'am' 
+                  ? 'ተማሪዎች እርስዎን በቀጥታ እንዲያዩ ካሜራዎን ያብሩ።' 
+                  : 'Turn on your camera so students can see you live in the classroom.'}
               </p>
 
               {cameraError && (
-                <div className="mb-4 p-3 rounded-xl bg-rose-950/80 border border-rose-500/80 text-rose-200 text-xs flex items-center gap-2 text-left">
-                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>{cameraError}</span>
+                <div className="mb-4 p-3 rounded-xl bg-rose-950/80 border border-rose-500/80 text-rose-200 text-xs flex flex-col gap-2 text-left w-full">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <span>{cameraError}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isInIframe && typeof window !== 'undefined' && (
+                      <a
+                        href={window.location.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-600 text-white font-bold text-[11px] cursor-pointer transition inline-flex items-center gap-1"
+                      >
+                        <span>{language === 'am' ? 'በአዲስ ታብ ክፈት (ካሜራ ለመፍቀድ)' : 'Open in New Tab to Allow Camera'}</span>
+                      </a>
+                    )}
+                    {onOpenNewTab && (
+                      <button
+                        type="button"
+                        onClick={onOpenNewTab}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] cursor-pointer transition"
+                      >
+                        {language === 'am' ? 'ሊንክ ገልብጥ' : 'Copy Link'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center justify-center gap-2.5">
+              <div className="flex flex-col items-center gap-2.5">
                 <button
                   type="button"
-                  onClick={onSwitchToFrontCamera || onTurnOnCamera}
-                  className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm flex items-center gap-2 shadow-xl shadow-emerald-950/50 cursor-pointer transition transform hover:scale-105 active:scale-95"
+                  disabled={isStartingCamera}
+                  onClick={() => (onTurnOnCamera ? onTurnOnCamera() : onSwitchToFrontCamera?.())}
+                  className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-black text-xs sm:text-sm flex items-center gap-2 shadow-xl shadow-emerald-950/50 cursor-pointer transition active:scale-95"
                 >
-                  <Video className="w-4 h-4" />
-                  <span>🤳 የፊት ካሜራዬን አብራ (Open Front Face)</span>
+                  <Video className={`w-4 h-4 ${isStartingCamera ? 'animate-spin' : ''}`} />
+                  <span>
+                    {isStartingCamera
+                      ? (language === 'am' ? 'ካሜራ በመክፈት ላይ...' : 'Opening Camera...')
+                      : (language === 'am' ? 'ካሜራ ክፈት' : 'Turn On Camera')}
+                  </span>
                 </button>
 
-                {onSwitchToBackCamera && (
-                  <button
-                    type="button"
-                    onClick={onSwitchToBackCamera}
-                    className="px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-slate-700 cursor-pointer transition"
-                  >
-                    <Camera className="w-4 h-4" />
-                    <span>📷 ጀርባ ካሜራ</span>
-                  </button>
-                )}
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {onSwitchToBackCamera && (
+                    <button
+                      type="button"
+                      disabled={isStartingCamera}
+                      onClick={onSwitchToBackCamera}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-60 text-slate-300 font-semibold text-xs flex items-center gap-1.5 border border-slate-700 cursor-pointer transition"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{language === 'am' ? 'ጀርባ ካሜራ' : 'Back Camera'}</span>
+                    </button>
+                  )}
 
-                {onFlipCamera && (
-                  <button
-                    type="button"
-                    onClick={onFlipCamera}
-                    className="px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-slate-700 cursor-pointer transition"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>🔄 ካሜራ ቀያይር</span>
-                  </button>
-                )}
-
-                {onUploadPhoto && (
-                  <button
-                    type="button"
-                    onClick={onUploadPhoto}
-                    className="px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-slate-700 cursor-pointer transition"
-                  >
-                    <Upload className="w-4 h-4" />
-                    <span>📁 ፎቶዬን ስቀል</span>
-                  </button>
-                )}
+                  {onUploadPhoto && (
+                    <button
+                      type="button"
+                      onClick={onUploadPhoto}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 border border-slate-700 cursor-pointer transition"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{language === 'am' ? 'ፎቶ ስቀል' : 'Upload Photo'}</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -368,7 +410,7 @@ const LiveTeacherVideo: React.FC<LiveTeacherVideoProps> = ({
       {isSpeaking && (
         <div className="absolute bottom-3 left-3 z-30 px-2.5 py-1 rounded-xl bg-emerald-950/90 border border-emerald-400/70 text-emerald-300 font-bold text-[11px] flex items-center gap-1.5 shadow-xl backdrop-blur-md animate-pulse">
           <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <span>ድምፅ እየተናገሩ ነው (Speaking...)</span>
+          <span>{language === 'am' ? 'ድምፅ እየተናገሩ ነው...' : 'Speaking...'}</span>
         </div>
       )}
     </div>
@@ -388,6 +430,8 @@ interface LiveClassViewProps {
   onDeleteVideoLesson?: (videoId: string) => void;
   onNavigateToVideos?: (filterTab?: 'All' | 'My Videos' | 'Saved', videoId?: string) => void;
   onToggleRole?: () => void;
+  language?: Language;
+  onSelectLanguage?: (lang: Language) => void;
 }
 
 export const LiveClassView: React.FC<LiveClassViewProps> = ({
@@ -403,64 +447,89 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
   onDeleteVideoLesson,
   onNavigateToVideos,
   onToggleRole,
+  language = 'en',
+  onSelectLanguage,
 }) => {
-  // Find currently selected class or fallback gracefully
-  const currentLevelClasses = liveClasses.filter((c) => c.level === selectedLevel);
-  const selectedClass = 
-    liveClasses.find((c) => c.id === activeClassId) || 
-    currentLevelClasses[0] || 
+  const [internalLang, setInternalLang] = useState<Language>(() => {
+    try {
+      return (localStorage.getItem('ethio_exam_language') as Language) || language || 'en';
+    } catch {
+      return language || 'en';
+    }
+  });
+
+  const currentLang: Language = language || internalLang;
+  const setLang = (l: Language) => {
+    setInternalLang(l);
+    try {
+      localStorage.setItem('ethio_exam_language', l);
+    } catch {}
+    if (onSelectLanguage) onSelectLanguage(l);
+  };
+
+  const t = (key: TranslationKey) => getTranslation(key, currentLang);
+  const isAm = currentLang === 'am';
+  const isAuthorizedTeacher = currentUser?.role === 'teacher' || currentUser?.role === 'admin';
+  const effectiveStudentLevel =
+    currentUser?.role === 'student' && currentUser.gradeLevel
+      ? currentUser.gradeLevel
+      : selectedLevel;
+  const visibleLiveClasses =
+    currentUser?.role === 'student'
+      ? liveClasses.filter((c) => c.level === effectiveStudentLevel)
+      : liveClasses;
+
+  // Find currently selected class or fallback gracefully within visible grade classes
+  const currentLevelClasses = visibleLiveClasses.filter((c) => c.level === effectiveStudentLevel);
+  const selectedClass =
+    visibleLiveClasses.find((c) => c.id === activeClassId) ||
+    currentLevelClasses[0] ||
+    visibleLiveClasses[0] ||
     liveClasses[0];
 
-  // Stage display mode: 'camera' | 'split' | 'slides' | 'split_ppt' | 'whiteboard' | 'video' | 'screenshare'
-  const [stageMode, setStageMode] = useState<'camera' | 'split' | 'slides' | 'split_ppt' | 'whiteboard' | 'video' | 'screenshare'>('camera');
+  // Stage display mode: 'slides' | 'video' | 'whiteboard' | 'split' | 'split_ppt' | 'camera' | 'screenshare'
+  const [stageMode, setStageMode] = useState<'camera' | 'split' | 'slides' | 'split_ppt' | 'whiteboard' | 'video' | 'screenshare'>(() => {
+    if (selectedClass?.youtubeId || selectedClass?.videoUrl) return 'video';
+    return 'slides';
+  });
   const [isMirrored, setIsMirrored] = useState<boolean>(true);
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isTeaching, setIsTeaching] = useState<boolean>(true);
+  const [isStartingCamera, setIsStartingCamera] = useState<boolean>(false);
+  const [isTeaching, setIsTeaching] = useState<boolean>(false);
   
   // Interactive Live Classroom states
   const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
-  const [chatMessages, setChatMessages] = useState<LiveChatMessage[]>([
-    {
-      id: 'msg-1',
-      sender: 'Kalkidan Mengistu',
-      role: 'student',
-      text: 'Teacher, in the ESSLCE 2016 exam, was the AC generator question asking for peak voltage or RMS voltage?',
-      timestamp: '18:04',
-      isQuestion: true,
-      upvotes: 24,
-      isAnswered: true,
-    },
-    {
-      id: 'msg-2',
-      sender: 'Ato Birhanu Tadesse',
-      role: 'teacher',
-      text: 'Great question Kalkidan! Unless the problem specifies RMS or effective, ε_max = NABω calculates the peak amplitude. For RMS, divide by √2.',
-      timestamp: '18:06',
-      upvotes: 42,
-    },
-    {
-      id: 'msg-3',
-      sender: 'Yonas Abebe',
-      role: 'student',
-      text: 'Can we review self-inductance L of a solenoid before the session ends?',
-      timestamp: '18:09',
-      isQuestion: true,
-      upvotes: 18,
-    },
-    {
-      id: 'msg-ai-1',
-      sender: 'EthioAI Study Copilot',
-      role: 'ai_tutor',
-      text: 'Reminder for Grade 12: Solenoid self-inductance is L = (μ₀ · N² · A) / l. Remember that N is squared!',
-      timestamp: '18:10',
-      upvotes: 35,
-    }
-  ]);
+  const [chatMessages, setChatMessages] = useState<LiveChatMessage[]>([]);
 
   const [inputMessage, setInputMessage] = useState<string>('');
-  const [isQuestionFilter, setIsQuestionFilter] = useState<boolean>(false);
+  const [isQuestionMode, setIsQuestionMode] = useState<boolean>(false);
+  const [chatAttachment, setChatAttachment] = useState<{ name: string; url: string } | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false);
+  const chatAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const [streamStatusFilter, setStreamStatusFilter] = useState<'all' | 'live' | 'scheduled' | 'recordings'>('all');
+  const [activeChatTab, setActiveChatTab] = useState<'chat' | 'qa' | 'pending' | 'polls'>('chat');
+  const [chatSearchQuery, setChatSearchQuery] = useState<string>('');
+  const [qaStatusFilter, setQaStatusFilter] = useState<'all' | 'unanswered' | 'answered' | 'pinned'>('all');
+  const [replyingTo, setReplyingTo] = useState<LiveChatMessage | null>(null);
+  const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
+  const [teacherAnswerText, setTeacherAnswerText] = useState<string>('');
+  const [isSubmittingChat, setIsSubmittingChat] = useState<boolean>(false);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState<boolean>(false);
+  const chatScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [micPermissionError, setMicPermissionError] = useState<string | null>(null);
+  const [activeClassTool, setActiveClassTool] = useState<'whiteboard' | 'files' | 'polls' | 'attendance' | 'notes'>('whiteboard');
   const [userVotedPollOption, setUserVotedPollOption] = useState<number | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Intelligent auto-scroll: only scrolls to bottom if the user is already near bottom
+  useEffect(() => {
+    if (!isUserScrolledUp) {
+      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      setUnreadCount(0);
+    }
+  }, [chatMessages.length, isUserScrolledUp]);
 
   // Hardware Media Stream States: Default to FALSE so camera & microphone NEVER auto-turn-on uninvited
   const [micActive, setMicActive] = useState<boolean>(false);
@@ -517,7 +586,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         setCamActive(true);
         setIsTeaching(true);
         setStageMode('camera');
-        triggerToast('የእርስዎ ፎቶ ተጭኗል! ፊትዎ በቀጥታ እየታየ ነው (Your face is broadcasting live)።');
+        triggerToast(currentLang === 'am' ? 'የእርስዎ ፎቶ ተጭኗል! ፊትዎ በቀጥታ እየታየ ነው።' : 'Your face photo is now broadcasting live.');
       };
       reader.readAsDataURL(file);
     }
@@ -532,28 +601,135 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       setIsTeaching(true);
       setCameraError(null);
       setStageMode('camera');
-      triggerToast('የእርስዎ ፊት ፎቶ በቀጥታ ስርጭት ላይ ውሏል (Face photo active)።');
+      triggerToast(currentLang === 'am' ? 'የእርስዎ ፊት ፎቶ በቀጥታ ስርጭት ላይ ውሏል።' : 'Teacher photo is now active.');
     } else {
       photoInputRef.current?.click();
     }
   };
 
-  const handleOpenNewTab = () => {
-    window.open(window.location.href, '_blank');
+  const handleOpenNewTab = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      triggerToast(
+        currentLang === 'am'
+          ? 'የክፍሉ ሊንክ ተገልብጧል! በሌላ መስኮት ለመክፈት ይለጥፉ።'
+          : 'Classroom link copied! Paste in another tab or share with students.'
+      );
+    } catch {
+      triggerToast(
+        currentLang === 'am'
+          ? 'ይህንን አድራሻ ይጠቀሙ፦ ' + window.location.href
+          : 'Share link: ' + window.location.href
+      );
+    }
   };
 
   // Interaction Toggles
   const [isHandRaised, setIsHandRaised] = useState<boolean>(false);
   const [showAttendeesModal, setShowAttendeesModal] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'live_room' | 'recordings'>('live_room');
+  const [showMoreToolbarMenu, setShowMoreToolbarMenu] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'live_room' | 'recordings'>('recordings');
+  const prevActiveClassIdRef = useRef<string | undefined>(activeClassId);
+
+  // When activeClassId prop explicitly changes to a different ID (e.g. user clicked Join), enter live_room
+  useEffect(() => {
+    if (activeClassId && activeClassId !== prevActiveClassIdRef.current) {
+      setActiveTab('live_room');
+      // Set appropriate stage mode for newly opened class
+      const targetClass = liveClasses.find((c) => c.id === activeClassId);
+      if (targetClass?.youtubeId || targetClass?.videoUrl) {
+        setStageMode('video');
+      } else {
+        setStageMode('slides');
+      }
+    }
+    prevActiveClassIdRef.current = activeClassId;
+  }, [activeClassId, liveClasses]);
+
+  // Fullscreen, mobile layout & teacher console states
+  const classroomStageRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [mobileClassroomTab, setMobileClassroomTab] = useState<'stage' | 'chat'>('stage');
+  const [isTeacherConsoleOpen, setIsTeacherConsoleOpen] = useState<boolean>(true);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const handleToggleFullscreen = () => {
+    if (!classroomStageRef.current) return;
+    if (!document.fullscreenElement) {
+      classroomStageRef.current.requestFullscreen?.().catch((err) => {
+        console.warn('Fullscreen error:', err);
+      });
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
+  const handleOpenClassMaterial = (matTitle: string) => {
+    const cleanTitle = matTitle.trim().toLowerCase();
+    const found = DOCUMENTS_DATA.find(
+      (d) =>
+        d.title.toLowerCase() === cleanTitle ||
+        d.title.toLowerCase().includes(cleanTitle) ||
+        cleanTitle.includes(d.title.toLowerCase())
+    );
+    if (found) {
+      setViewingClassDocument(found);
+    } else {
+      setViewingClassDocument({
+        id: `mat-${selectedClass.id}`,
+        title: matTitle,
+        subject: selectedClass.subject,
+        subjectId: selectedClass.subjectId,
+        level: selectedClass.level,
+        chapter: selectedClass.currentTopic || selectedClass.title,
+        category: 'Teacher Summary',
+        fileType: 'PDF',
+        pages: selectedClass.slides?.length || 5,
+        fileSize: '2.4 MB',
+        uploadedBy: selectedClass.teacherName && !selectedClass.teacherName.includes('መምህር አልተመደበም') && !selectedClass.teacherName.toLowerCase().includes('no teacher') ? selectedClass.teacherName : (currentLang === 'am' ? 'የሥርዓተ-ትምህርት አዘጋጅ ኮሚቴ' : 'National Curriculum Specialist Panel'),
+        uploadDate: '2026-03-01',
+        downloadsCount: 0,
+        fullExcerpt: `${selectedClass.title.toUpperCase()}\nTOPIC: ${selectedClass.currentTopic}\n\n${(selectedClass.slides || []).map((s, idx) => `SECTION ${idx + 1}: ${s.title}\n${s.bulletPoints.map((b) => `• ${b}`).join('\n')}\n${s.formulaOrQuote ? `Formula / Theorem: ${s.formulaOrQuote}\n` : ''}`).join('\n')}`,
+      });
+    }
+  };
 
   // Teacher Start Class Modal
   const [showStartModal, setShowStartModal] = useState<boolean>(false);
   const [newClassTitle, setNewClassTitle] = useState<string>('');
-  const [newClassSubject, setNewClassSubject] = useState<string>('Physics');
+  const [newClassSubject, setNewClassSubject] = useState<string>(currentUser?.teachingSubject || 'Physics');
   const [newClassTopic, setNewClassTopic] = useState<string>('');
-  const [newClassLevel, setNewClassLevel] = useState<ExamLevel>(selectedLevel);
+  const [newClassLevel, setNewClassLevel] = useState<ExamLevel>(currentUser?.gradeLevel || selectedLevel);
   const [newClassYoutube, setNewClassYoutube] = useState<string>('');
+  const [newClassVideoFile, setNewClassVideoFile] = useState<File | null>(null);
+  const [newClassVideoPreviewUrl, setNewClassVideoPreviewUrl] = useState<string | null>(null);
+  const [isUploadingNewClassVideo, setIsUploadingNewClassVideo] = useState<boolean>(false);
+  const startModalVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const [startAsLive, setStartAsLive] = useState<boolean>(true);
+
+  // Live Classroom Uploaded Lesson Video State (for teachers teaching with pre-recorded videos)
+  const liveLessonVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const lessonVideoPlayerRef = useRef<HTMLVideoElement | null>(null);
+  const isRemoteSyncingVideoRef = useRef<boolean>(false);
+  const [roomLessonVideoUrl, setRoomLessonVideoUrl] = useState<string | null>(selectedClass?.videoUrl || null);
+  const [roomLessonYoutubeId, setRoomLessonYoutubeId] = useState<string | null>(selectedClass?.youtubeId || null);
+  const [roomLessonVideoTitle, setRoomLessonVideoTitle] = useState<string | null>(null);
+  const [isUploadingLiveLessonVideo, setIsUploadingLiveLessonVideo] = useState<boolean>(false);
+  const [showQuickYoutubeInput, setShowQuickYoutubeInput] = useState<boolean>(false);
+  const [quickYoutubeUrl, setQuickYoutubeUrl] = useState<string>('');
+
+  useEffect(() => {
+    setRoomLessonVideoUrl(selectedClass?.videoUrl || null);
+    setRoomLessonYoutubeId(selectedClass?.youtubeId || null);
+    setRoomLessonVideoTitle(null);
+  }, [selectedClass?.id, selectedClass?.videoUrl, selectedClass?.youtubeId]);
 
   // Toast banner
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -570,9 +746,12 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
   const [remoteTeacherStream, setRemoteTeacherStream] = useState<MediaStream | null>(null);
   const [remoteTeacherFrame, setRemoteTeacherFrame] = useState<string | null>(null);
   const [onlineParticipants, setOnlineParticipants] = useState<LiveRoomParticipant[]>([]);
-  const [liveViewerCount, setLiveViewerCount] = useState<number>(1);
+  const [liveViewerCount, setLiveViewerCount] = useState<number>(0);
+  const [viewingClassDocument, setViewingClassDocument] = useState<DocumentMaterial | null>(null);
   const [isRemoteAudioMuted, setIsRemoteAudioMuted] = useState<boolean>(false);
   const [activeServerBroadcast, setActiveServerBroadcast] = useState<ActiveBroadcastInfo | null>(null);
+  const activeServerBroadcastRef = useRef<ActiveBroadcastInfo | null>(null);
+  activeServerBroadcastRef.current = activeServerBroadcast;
   const liveClientRef = useRef<LiveClassroomClient | null>(null);
   const remoteVideoElementRef = useRef<HTMLVideoElement | null>(null);
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -599,17 +778,21 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     const cleanup = listenGlobalLiveBroadcasts(
       (info) => {
         setActiveServerBroadcast(info);
-        triggerToast(`🔴 መምህር ${info.teacherName} የቀጥታ ስርጭት ጀምረዋል!`);
+        triggerToast(
+          currentLang === 'am'
+            ? `🔴 መምህር ${info.teacherName} የቀጥታ ስርጭት ጀምረዋል!`
+            : `🔴 Instructor ${info.teacherName} started live broadcast!`
+        );
       },
       (stopInfo) => {
-        if (!stopInfo?.roomId || stopInfo.roomId === activeServerBroadcast?.roomId) {
+        if (!stopInfo?.roomId || stopInfo.roomId === activeServerBroadcastRef.current?.roomId) {
           setActiveServerBroadcast(null);
         }
       }
     );
 
     return cleanup;
-  }, []);
+  }, [currentLang]);
 
   useEffect(() => {
     const roomId = `room-${selectedClass?.id || 'live-ethio-class'}`;
@@ -621,7 +804,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
 
     const client = new LiveClassroomClient(roomId, clientUser, {
       onRoomInit: (room) => {
-        setLiveViewerCount(room.userCount || 1);
+        setLiveViewerCount(room.userCount || (room.users ? Object.keys(room.users).length : 0));
         if (room.users) {
           setOnlineParticipants(Object.values(room.users));
         }
@@ -634,11 +817,24 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         } else {
           setLiveBroadcasterInfo(null);
         }
+        if (room.videoUrl !== undefined) {
+          setRoomLessonVideoUrl(room.videoUrl);
+        }
+        if (room.youtubeId !== undefined) {
+          setRoomLessonYoutubeId(room.youtubeId);
+        }
+        if (room.videoTitle !== undefined) {
+          setRoomLessonVideoTitle(room.videoTitle);
+        }
       },
       onUserJoined: (u, count) => {
         setLiveViewerCount(count);
         setOnlineParticipants((prev) => [...prev.filter((p) => p.id !== u.id), u]);
-        triggerToast(`👋 ${u.name} አሁን በቀጥታ ክፍል ውስጥ ተቀላቅለዋል (${u.role === 'teacher' ? 'መምህር' : 'ተማሪ'})`);
+        triggerToast(
+          currentLang === 'am'
+            ? `👋 ${u.name} አሁን በቀጥታ ክፍል ውስጥ ተቀላቅለዋል`
+            : `👋 ${u.name} joined the live classroom`
+        );
       },
       onUserLeft: (uid, count) => {
         setLiveViewerCount(count);
@@ -646,13 +842,17 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       },
       onBroadcastStarted: (info) => {
         setLiveBroadcasterInfo(info);
-        triggerToast(`🔴 መምህር ${info.teacherName} የቀጥታ ስርጭት ጀምረዋል! ድምፃቸውንና ምስላቸውን በቀጥታ ይከታተሉ።`);
+        triggerToast(
+          currentLang === 'am'
+            ? `🔴 መምህር ${info.teacherName} የቀጥታ ስርጭት ጀምረዋል! ድምፃቸውንና ምስላቸውን በቀጥታ ይከታተሉ።`
+            : `🔴 Instructor ${info.teacherName} is now live! Audio and video are broadcasting.`
+        );
       },
       onBroadcastStopped: () => {
         setLiveBroadcasterInfo(null);
         setRemoteTeacherStream(null);
         setRemoteTeacherFrame(null);
-        triggerToast('የቀጥታ ስርጭቱ ተጠናቋል።');
+        triggerToast(currentLang === 'am' ? 'የቀጥታ ስርጭቱ ተጠናቋል።' : 'Live broadcast ended.');
       },
       onVideoFrame: (frameBase64) => {
         setRemoteTeacherFrame(frameBase64);
@@ -700,9 +900,32 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         }
       },
       onStageUpdated: (info) => {
-        if (currentUser?.role !== 'teacher') {
+        if (!isAuthorizedTeacher) {
           if (info.stageMode) setStageMode(info.stageMode as any);
           if (typeof info.currentSlideIndex === 'number') setCurrentSlideIndex(info.currentSlideIndex);
+          if (info.videoUrl !== undefined) setRoomLessonVideoUrl(info.videoUrl);
+          if (info.youtubeId !== undefined) setRoomLessonYoutubeId(info.youtubeId);
+          if (info.videoTitle !== undefined) setRoomLessonVideoTitle(info.videoTitle);
+        }
+      },
+      onVideoControl: (ctrl) => {
+        if (!isAuthorizedTeacher && lessonVideoPlayerRef.current) {
+          const vidEl = lessonVideoPlayerRef.current;
+          isRemoteSyncingVideoRef.current = true;
+          try {
+            if (typeof ctrl.currentTime === 'number' && Math.abs(vidEl.currentTime - ctrl.currentTime) > 1.2) {
+              vidEl.currentTime = ctrl.currentTime;
+            }
+            if (ctrl.action === 'play') {
+              vidEl.play().catch(() => {});
+            } else if (ctrl.action === 'pause') {
+              vidEl.pause();
+            }
+          } finally {
+            setTimeout(() => {
+              isRemoteSyncingVideoRef.current = false;
+            }, 250);
+          }
         }
       },
       onChatMessage: (msg) => {
@@ -710,6 +933,42 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
+        if (isUserScrolledUp) {
+          setUnreadCount((c) => c + 1);
+        }
+      },
+      onChatReaction: ({ messageId, emoji, reactions, upvotes }) => {
+        setChatMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? { ...m, reactions, upvotes } : m))
+        );
+      },
+      onChatPin: ({ messageId, isPinned }) => {
+        setChatMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? { ...m, isPinned } : m))
+        );
+      },
+      onChatAnswer: ({ messageId, isAnswered, teacherAnswer, answeredBy, answeredAt }) => {
+        setChatMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId
+              ? {
+                  ...m,
+                  isAnswered,
+                  teacherAnswer: teacherAnswer || m.teacherAnswer,
+                  answeredBy: answeredBy || m.answeredBy,
+                  answeredAt: answeredAt || m.answeredAt,
+                }
+              : m
+          )
+        );
+      },
+      onChatDelete: ({ messageId }) => {
+        setChatMessages((prev) => prev.filter((m) => m.id !== messageId));
+      },
+      onChatEdit: ({ messageId, text }) => {
+        setChatMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? { ...m, text } : m))
+        );
       },
     });
 
@@ -767,11 +1026,18 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     }
   }, [syncBroadcastStream, currentUser?.role, isBroadcastingLive]);
 
+  // Broadcast teacher's active stage mode and slide index to connected students
+  useEffect(() => {
+    if (isAuthorizedTeacher && activeTab === 'live_room') {
+      liveClientRef.current?.updateStage(stageMode, currentSlideIndex);
+    }
+  }, [isAuthorizedTeacher, activeTab, stageMode, currentSlideIndex]);
+
   const toggleLiveBroadcast = async () => {
     if (isBroadcastingLive) {
       liveClientRef.current?.stopBroadcast();
       setIsBroadcastingLive(false);
-      triggerToast('የቀጥታ ስርጭት ቆሟል (Live broadcast stopped)');
+      triggerToast(t('liveBroadcastStoppedToast'));
     } else {
       // Ensure microphone is active so teacher voice is guaranteed to stream to all students
       if (!micStreamRef.current) {
@@ -788,7 +1054,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         );
       });
       setIsBroadcastingLive(true);
-      triggerToast('🔴 የቀጥታ ስርጭት ተጀምሯል! ተማሪዎች በቀጥታ እያዩዎትና ድምፅዎን እየሰሙ ነው (Broadcasting Live with Audio & Video)');
+      triggerToast(t('liveBroadcastStartedToast'));
     }
   };
 
@@ -966,36 +1232,66 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       }
     } catch {}
 
-    triggerToast('የቀረጻው ቪዲዮ በተሳካ ሁኔታ ተሰርዟል! (Recording deleted)');
+    triggerToast(t('recordingDeletedToast'));
   };
 
-  const defaultCurriculumSlides: LiveSlide[] = [
+  const defaultCurriculumSlides: LiveSlide[] = currentLang === 'am' ? [
     {
-      title: `${selectedClass?.subject || 'Physics'} Grade 12: National Examination Review`,
-      subtitle: 'ESSLCE High-Yield Exam Preparation',
+      title: `${selectedClass?.subject || 'ፊዚክስ'} 12ኛ ክፍል፦ የአገር አቀፍ ፈተና ክለሳ`,
+      subtitle: 'የፈተና ዝግጅት ዋና ዋና ነጥቦች',
       bulletPoints: [
-        'ክለሳ 1: መሰረታዊ ጽንሰ-ሀሳቦች እና ፎርሙላዎች (Core Formulas & Principles)',
-        'ክለሳ 2: የአገር አቀፍ ፈተና (ESSLCE Matric) የተመረጡ ጥያቄዎችና አሰራሮች',
-        'ክለሳ 3: ፈጣን የማስያ ዘዴዎችና የተማሪዎች የተለመዱ ስህተቶች (Exam Trap Prevention)',
+        'ክለሳ 1፦ መሰረታዊ ጽንሰ-ሀሳቦች እና ፎርሙላዎች',
+        'ክለሳ 2፦ የአገር አቀፍ ፈተና የተመረጡ ጥያቄዎችና አሰራሮች',
+        'ክለሳ 3፦ ፈጣን የማስያ ዘዴዎችና የተማሪዎች የተለመዱ ስህተቶች',
       ],
       formulaOrQuote: 'P = V · I = I² · R  |  ε = -N · (ΔΦ / Δt)',
     },
     {
-      title: `${selectedClass?.subject || 'Physics'}: የተመረጠ የፈተና ጥያቄ እና አሰራር`,
-      subtitle: 'Step-by-Step Problem Solving on Whiteboard',
+      title: `${selectedClass?.subject || 'ፊዚክስ'}፦ የተመረጠ የፈተና ጥያቄ እና አሰራር`,
+      subtitle: 'በሰሌዳው ላይ ደረጃ በደረጃ የሚሰራ ስሌት',
       bulletPoints: [
-        'ጥያቄውን በጥንቃቄ አንብበው የተሰጡ መረጃዎችን (Given variables) ለይተው ይፃፉ',
-        'አሃዶችን (Units) ወደ SI Unit ማስተካከልዎን ያረጋግጡ (ለምሳሌ፦ cm² ወደ m²)',
+        'ጥያቄውን በጥንቃቄ አንብበው የተሰጡ መረጃዎችን ለይተው ይፃፉ',
+        'አሃዶችን ወደ መደበኛ መለኪያ ማስተካከልዎን ያረጋግጡ',
         'ትክክለኛውን ፎርሙላ በመጠቀም ውጤቱን በቀጥታ በሰሌዳው ላይ ይስሩ',
       ],
       formulaOrQuote: 'F_net = m · a  |  W = F · d',
     },
     {
       title: 'የማጠቃለያ ምክሮች እና የተማሪዎች ጥያቄዎች',
+      subtitle: 'የቀጥታ ውይይት እና ማብራሪያ',
+      bulletPoints: [
+        'ተማሪዎች ያልገባችሁን ነጥብ በቀጥታ ውይይት ላይ ጻፉ',
+        'የቀጣይ ክፍለ-ጊዜ የቤት ስራና የተዘጋጁ ማስታወሻዎችን ከታች ያውርዱ',
+      ],
+      formulaOrQuote: 'ትኩረት + ልምምድ = የላቀ ውጤት!',
+    },
+  ] : [
+    {
+      title: `${selectedClass?.subject || 'Physics'} Grade 12: National Examination Review`,
+      subtitle: 'ESSLCE High-Yield Exam Preparation',
+      bulletPoints: [
+        'Review 1: Core Formulas & Fundamental Principles',
+        'Review 2: ESSLCE Matric Exam Selected Questions & Solutions',
+        'Review 3: Quick Calculation Shortcuts & Common Student Pitfalls',
+      ],
+      formulaOrQuote: 'P = V · I = I² · R  |  ε = -N · (ΔΦ / Δt)',
+    },
+    {
+      title: `${selectedClass?.subject || 'Physics'}: Step-by-Step Exam Problem & Solution`,
+      subtitle: 'Step-by-Step Problem Solving on Whiteboard',
+      bulletPoints: [
+        'Read the problem statement carefully and list all given variables',
+        'Verify and convert all units to standard SI units before calculating',
+        'Apply the governing formula and show clear steps on the board',
+      ],
+      formulaOrQuote: 'F_net = m · a  |  W = F · d',
+    },
+    {
+      title: 'Summary Tips & Student Interactive Q&A',
       subtitle: 'Q&A and Interactive Discussion',
       bulletPoints: [
-        'ተማሪዎች ያልገባችሁን ጥያቄ በቀጥታ ቻት (Live Chat) ላይ ጻፉ',
-        'የቀጣይ ክፍለ-ጊዜ የቤት ስራና የተዘጋጁ ማስታወሻዎችን ከታች ያውርዱ',
+        'Students: Submit any questions or doubts in the live chat or Q&A tab',
+        'Download attached lecture summary notes and formula sheets below',
       ],
       formulaOrQuote: 'Focus + Practice = 100% Exam Success!',
     },
@@ -1030,7 +1326,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#94a3b8';
             ctx.font = '14px sans-serif';
-            ctx.fillText('Interactive Digital Blackboard (የዲጂታል ሰሌዳ) — Draw & solve problems live.', 24, 36);
+            ctx.fillText(isAm ? 'የዲጂታል ሰሌዳ — የቀጥታ ስሌቶችና ማብራሪያ' : 'Interactive Digital Blackboard — Draw & solve problems live.', 24, 36);
           }
         }
       }
@@ -1230,7 +1526,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
   // Leave / Exit Classroom Handler
   const handleExitClass = () => {
     shutdownAllLiveStreams();
-    triggerToast('🚪 ከቀጥታ ክፍል ወጥተዋል፤ ካሜራ፣ ማይክሮፎንና ስርጭት ሙሉ በሙሉ ጠፍቷል (Exited Live Class — Camera & Mic are Off)');
+    triggerToast(t('exitClassToast'));
     setActiveTab('recordings');
   };
 
@@ -1242,17 +1538,17 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         monitorCtxRef.current = null;
       }
       setIsMonitoringMic(false);
-      triggerToast('🔇 የድምፅ ማዳመጫ (Live Monitor) ጠፍቷል');
+      triggerToast(t('liveAudioMonitorOff'));
     } else {
       try {
         const mic = await ensureActiveMicrophone();
         if (!mic) {
-          triggerToast('ማይክሮፎን አልተገኘም፤ እባክዎ ማይክሮፎን ይፍቀዱ');
+          triggerToast(t('micNotFound'));
           return;
         }
         const audioTrack = mic.getAudioTracks().find((t) => t.readyState === 'live');
         if (!audioTrack) {
-          triggerToast('የማይክሮፎን ድምፅ ዝግጁ አይደለም');
+          triggerToast(t('audioNotReady'));
           return;
         }
         audioTrack.enabled = true;
@@ -1268,257 +1564,159 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
           gain.connect(ctx.destination);
           monitorCtxRef.current = ctx;
           setIsMonitoringMic(true);
-          triggerToast('🎧 የራስዎን ድምፅና የውጭ ድምፆችን በስፒከር/ጆሮ ማዳመጫ እያዳመጡ ነው! (Live Audio Monitor Active)');
+          triggerToast(t('liveAudioMonitorActive'));
         }
       } catch (err) {
         console.warn('Monitor mic error:', err);
-        triggerToast('የድምፅ ማዳመጫውን መክፈት አልተቻለም');
+        triggerToast(t('cannotOpenAudioMonitor'));
       }
     }
   };
 
-  // Start Camera with explicit facingMode ('user' for front face camera, 'environment' for back camera)
-  const startCameraWithFacing = async (facing: 'user' | 'environment', explicitDeviceId?: string) => {
+  // Start Camera immediately within user gesture so browser prompts reliably without losing activation
+  const startCameraWithFacing = async (
+    facing: 'user' | 'environment',
+    explicitDeviceId?: string,
+    preserveStage: boolean = false
+  ) => {
+    if (isStartingCamera) return;
     setCameraFacing(facing);
     setIsMirrored(facing === 'user');
     setCameraError(null);
-    setStageMode('camera');
-    setCamActive(true);
     setIsTeaching(true);
 
     if (!navigator?.mediaDevices?.getUserMedia) {
-      setCameraError('ካሜራ በዚህ አሳሽ ውስጥ አልተደገፈም (getUserMedia not supported)');
+      setCamActive(false);
+      setCameraError(
+        isAm
+          ? 'ካሜራ በዚህ አሳሽ ውስጥ አልተደገፈም (HTTPS ወይም አዲስ አሳሽ ያስፈልጋል)'
+          : 'Camera not supported in this browser (HTTPS or modern browser required).'
+      );
       return;
     }
 
-    // Stop old tracks first so hardware is completely freed for camera switch without conflict
-    if (userStream) {
-      userStream.getVideoTracks().forEach((t) => {
-        try { t.stop(); } catch (e) {}
+    setIsStartingCamera(true);
+
+    // Detach onended handlers and stop previous video tracks cleanly before requesting new stream
+    if (userStreamRef.current) {
+      userStreamRef.current.getVideoTracks().forEach((t) => {
+        try {
+          t.onended = null;
+          t.stop();
+        } catch (e) {}
       });
     }
 
     try {
-      const devices = await refreshCameraDevices();
-      let chosenDeviceId = explicitDeviceId;
-
-      // Smart-pick camera device matching desired facing mode
-      if (!chosenDeviceId && devices.length > 0) {
-        if (facing === 'user') {
-          const frontMatch = devices.find((d) => {
-            const l = (d.label || '').toLowerCase();
-            const isNotBack = !l.includes('back') && !l.includes('environment') && !l.includes('rear') && !l.includes('iriun') && !l.includes('obs');
-            return isNotBack && (
-              l.includes('front') || 
-              l.includes('user') || 
-              l.includes('selfie') || 
-              l.includes('facing front') ||
-              l.includes('1, facing') ||
-              l.includes('integrated') || 
-              l.includes('facetime') || 
-              l.includes('internal') || 
-              l.includes('face') ||
-              l.includes('inner') ||
-              l.includes('secondary')
-            );
-          });
-          if (frontMatch) {
-            chosenDeviceId = frontMatch.deviceId;
-          } else if (devices.length >= 2) {
-            // Android mobile convention: index 1 is front selfie camera, index 0 is rear
-            chosenDeviceId = devices[1].deviceId;
-          }
-        } else {
-          const backMatch = devices.find((d) => {
-            const l = (d.label || '').toLowerCase();
-            return (
-              l.includes('back') || 
-              l.includes('environment') || 
-              l.includes('rear') || 
-              l.includes('world') || 
-              l.includes('facing back') ||
-              l.includes('0, facing') ||
-              l.includes('external')
-            );
-          });
-          if (backMatch) {
-            chosenDeviceId = backMatch.deviceId;
-          } else if (devices.length >= 1) {
-            chosenDeviceId = devices[0].deviceId;
-          }
-        }
-      }
-
-      if (chosenDeviceId) {
-        setSelectedCameraId(chosenDeviceId);
-      }
-
       let stream: MediaStream | null = null;
-      
-      // Clean, standard-compliant progressive fallback without overconstrained resolution or exact restrictions
-      if (facing === 'user') {
-        // Attempt 1: If explicit chosenDeviceId exists
-        if (chosenDeviceId) {
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { exact: chosenDeviceId } },
-              audio: false,
-            });
-          } catch (e1a) {
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { ideal: chosenDeviceId }, facingMode: { ideal: 'user' } },
-                audio: false,
-              });
-            } catch (e1b) {}
-          }
-        }
+      const cleanDeviceId = explicitDeviceId && explicitDeviceId.trim() ? explicitDeviceId.trim() : undefined;
 
-        // Attempt 2: Exact facingMode: 'user' (W3C standard for front selfie camera)
-        if (!stream) {
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: { exact: 'user' } },
-              audio: false,
-            });
-          } catch (e2a) {
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user' },
-                audio: false,
-              });
-            } catch (e2b) {
-              try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                  video: { facingMode: { ideal: 'user' } },
-                  audio: false,
-                });
-              } catch (e2c) {}
-            }
-          }
+      // Call getUserMedia IMMEDIATELY (before enumerateDevices) so browser keeps user gesture activation
+      if (cleanDeviceId) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: cleanDeviceId } },
+            audio: false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { ideal: cleanDeviceId }, facingMode: { ideal: facing } },
+            audio: false,
+          });
         }
-
-        // Attempt 3: Universal fallback for laptops/desktops
-        if (!stream) {
+      } else {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facing } },
+            audio: false,
+          });
+        } catch {
           stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false,
           });
         }
-      } else {
-        // Back camera attempts
-        if (chosenDeviceId) {
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { exact: chosenDeviceId } },
-              audio: false,
-            });
-          } catch (e3a) {
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { ideal: chosenDeviceId }, facingMode: { ideal: 'environment' } },
-                audio: false,
-              });
-            } catch (e3b) {}
-          }
+      }
+
+      const vTrack = stream?.getVideoTracks()?.[0];
+      if (!stream || !vTrack) {
+        throw new Error('No live video track returned');
+      }
+
+      vTrack.enabled = true;
+      vTrack.onended = () => {
+        if (userStreamRef.current === stream) {
+          userStreamRef.current = null;
+          setCamActive(false);
+          setUserStream(null);
         }
-        if (!stream) {
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: { exact: 'environment' } },
-              audio: false,
-            });
-          } catch (e4a) {
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: 'environment' } },
-                audio: false,
-              });
-            } catch (e4b) {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: false,
-              });
-            }
-          }
+      };
+
+      const settings = vTrack.getSettings ? vTrack.getSettings() : {};
+      if (settings.deviceId) {
+        setSelectedCameraId(settings.deviceId);
+      }
+      setIsMirrored(facing === 'user');
+      setCameraFacing(facing);
+
+      // Attach existing active mic track only if user already has mic running (never prompt mic unexpectedly on camera click)
+      if (micStreamRef.current) {
+        const audioTrack = micStreamRef.current.getAudioTracks().find((t) => t.readyState === 'live');
+        if (audioTrack && !stream.getAudioTracks().some((t) => t.id === audioTrack.id)) {
+          audioTrack.enabled = micActive;
+          stream.addTrack(audioTrack);
         }
       }
 
-      if (stream) {
-        const vTrack = stream.getVideoTracks()[0];
-        if (vTrack) {
-          vTrack.enabled = true;
-          const settings = vTrack.getSettings ? vTrack.getSettings() : {};
-
-          // If user specifically asked for front camera, but mobile browser returned back camera:
-          if (facing === 'user' && settings.facingMode === 'environment') {
-            const allDevs = await navigator.mediaDevices.enumerateDevices();
-            const altDev = allDevs.find(
-              (d) => d.kind === 'videoinput' && d.deviceId && d.deviceId !== settings.deviceId
-            );
-            if (altDev) {
-              try {
-                vTrack.stop();
-                const altStream = await navigator.mediaDevices.getUserMedia({
-                  video: { deviceId: { exact: altDev.deviceId } },
-                  audio: false,
-                });
-                stream = altStream;
-                const newTrack = stream.getVideoTracks()[0];
-                if (newTrack) newTrack.enabled = true;
-              } catch (altErr) {
-                console.warn('Alternate front camera switch note:', altErr);
-              }
-            }
-          }
-
-          // Finalize settings and mirroring
-          setIsMirrored(facing === 'user');
-          setCameraFacing(facing);
-        }
-
-        // Re-attach active audio track from micStreamRef if available so audio is never lost
-        if (micStreamRef.current) {
-          const audioTrack = micStreamRef.current.getAudioTracks().find((t) => t.readyState === 'live');
-          if (audioTrack && !stream.getAudioTracks().some((t) => t.id === audioTrack.id)) {
-            audioTrack.enabled = micActive;
-            stream.addTrack(audioTrack);
-          }
-        } else {
-          ensureActiveMicrophone().then((mStream) => {
-            if (mStream && stream) {
-              const track = mStream.getAudioTracks().find((t) => t.readyState === 'live');
-              if (track && !stream.getAudioTracks().some((t) => t.id === track.id)) {
-                track.enabled = micActive;
-                stream.addTrack(track);
-              }
-            }
-          });
-        }
-
-        setUserStream(stream);
-        syncBroadcastStream();
-        await refreshCameraDevices();
-        triggerToast(
-          facing === 'user'
-            ? '🤳 የፊት-ለፊት ካሜራ በርቷል (Front Face Camera Active)'
-            : '📷 የጀርባ ካሜራ በርቷል (Back Camera Active)'
-        );
+      userStreamRef.current = stream;
+      setUserStream(stream);
+      setCamActive(true);
+      if (!preserveStage && stageMode !== 'split' && stageMode !== 'split_ppt') {
+        setStageMode('camera');
       }
+
+      // Discover labeled devices now that permission has been granted
+      refreshCameraDevices().catch(() => {});
+      triggerToast(
+        currentLang === 'am'
+          ? (facing === 'user' ? 'የፊት ካሜራ በርቷል' : 'የጀርባ ካሜራ በርቷል')
+          : (facing === 'user' ? 'Camera turned on' : 'Back camera turned on')
+      );
     } catch (err: any) {
       console.error('Camera open error:', err);
-      const isNotAllowed = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError';
+      userStreamRef.current = null;
+      setCamActive(false);
+      setUserStream(null);
+      const isNotAllowed = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError' || err?.name === 'SecurityError';
       const isNotFound = err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError';
       const isNotReadable = err?.name === 'NotReadableError' || err?.name === 'TrackStartError';
       if (isNotAllowed) {
-        setCameraError('ካሜራ የመጠቀም ፈቃድ አልተሰጠም። እባክዎ በአሳሽዎ አድራሻ አጠገብ ያለውን የመቆለፊያ (Lock) ወይም የካሜራ ምልክት ተጭነው "Allow" የሚለውን ይምረጡ።');
+        setCameraError(
+          currentLang === 'am'
+            ? 'የካሜራ ፈቃድ ተከልክሏል። በአሳሽዎ ይፍቀዱ ወይም ከታች "በአዲስ ታብ ክፈት" የሚለውን ይጫኑ።'
+            : 'Camera permission denied. Allow camera in your browser or open this classroom in a new tab.'
+        );
       } else if (isNotFound) {
-        setCameraError('የፊት ካሜራ አልተገኘም። እባክዎ ካሜራው ከስልክዎ ወይም ከኮምፒውተርዎ ጋር በትክክል መገናኘቱን ያረጋግጡ።');
+        setCameraError(
+          currentLang === 'am'
+            ? 'ካሜራ አልተገኘም። እባክዎ ካሜራ መገናኘቱን ያረጋግጡ ወይም ፎቶ ይስቀሉ።'
+            : 'No camera device found on this device. Connect a camera or upload a photo.'
+        );
       } else if (isNotReadable) {
-        setCameraError('ካሜራው በሌላ መተግበሪያ እየተጠቀመበት ነው፤ እባክዎ ሌሎች ካሜራ የሚጠቀሙ መተግበሪያዎችን ይዝጉ።');
+        setCameraError(
+          currentLang === 'am'
+            ? 'ካሜራው በሌላ መተግበሪያ እየተጠቀመበት ነው፤ እባክዎ ሌሎችን ይዝጉ።'
+            : 'Camera is currently in use by another app.'
+        );
       } else {
-        setCameraError('ካሜራ መክፈት አልተቻለም። እባክዎ ገጹን ያድሱ ወይም በአዲስ ታብ (New Tab) ይክፈቱ።');
+        setCameraError(
+          currentLang === 'am'
+            ? 'ካሜራ መክፈት አልተቻለም። እባክዎ ፈቃድ ያረጋግጡ ወይም ፎቶ ይስቀሉ።'
+            : 'Could not start camera. Check browser permissions or upload a photo.'
+        );
       }
+    } finally {
+      setIsStartingCamera(false);
     }
   };
 
@@ -1529,21 +1727,31 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     const label = (dev?.label || '').toLowerCase();
     const isBack = label.includes('back') || label.includes('environment') || label.includes('rear');
     const targetFacing = isBack ? 'environment' : 'user';
-    await startCameraWithFacing(targetFacing, deviceId);
+    await startCameraWithFacing(targetFacing, deviceId, stageMode === 'split' || stageMode === 'split_ppt');
   };
 
   // Toggle Camera with front/back camera support
-  const handleToggleCamera = async (forceOn?: boolean) => {
-    if (camActive && !forceOn && (userStream || teacherPhoto)) {
-      if (userStream) {
-        userStream.getVideoTracks().forEach((t) => t.stop());
-        setUserStream(null);
+  const handleToggleCamera = async (forceOn?: boolean, preserveStage?: boolean) => {
+    const hasActiveVideo = Boolean(
+      (userStreamRef.current && userStreamRef.current.getVideoTracks().some((t) => t.readyState === 'live')) ||
+      teacherPhoto
+    );
+    if (camActive && !forceOn && hasActiveVideo) {
+      if (userStreamRef.current) {
+        userStreamRef.current.getVideoTracks().forEach((t) => {
+          try { t.stop(); } catch (e) {}
+        });
       }
+      setUserStream(null);
       setTeacherPhoto(null);
       setCamActive(false);
-      triggerToast('Camera turned off (ካሜራ ጠፍቷል)');
+      triggerToast(t('cameraTurnedOff'));
     } else {
-      await startCameraWithFacing(cameraFacing || 'user');
+      await startCameraWithFacing(
+        cameraFacing || 'user',
+        undefined,
+        preserveStage ?? (stageMode === 'split' || stageMode === 'split_ppt')
+      );
     }
   };
 
@@ -1557,7 +1765,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       await handleSelectCameraDevice(nextDev.deviceId);
     } else {
       const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
-      await startCameraWithFacing(nextFacing);
+      await startCameraWithFacing(nextFacing, undefined, stageMode === 'split' || stageMode === 'split_ppt');
     }
   };
 
@@ -1571,13 +1779,13 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       }
       const freshMic = await ensureActiveMicrophone(deviceId, captureExternalSound);
       if (freshMic) {
-        const activeName = freshMic.getAudioTracks()[0]?.label || 'ውጫዊ ማይክሮፎን';
-        triggerToast(`ማይክሮፎን ተቀይሯል: ${activeName}`);
+        const activeName = freshMic.getAudioTracks()[0]?.label || (isAm ? 'ውጫዊ ማይክሮፎን' : 'External Microphone');
+        triggerToast(isAm ? `ማይክሮፎን ተቀይሯል: ${activeName}` : `Microphone changed: ${activeName}`);
         syncBroadcastStream();
       }
     } catch (err) {
       console.error('Microphone select error:', err);
-      triggerToast('ማይክሮፎኑን መቀየር አልተቻለም');
+      triggerToast(isAm ? 'ማይክሮፎኑን መቀየር አልተቻለም' : 'Could not change microphone device');
     }
   };
 
@@ -1595,8 +1803,8 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         syncBroadcastStream();
         triggerToast(
           nextMode
-            ? '🔊 የውጭ ድምፅ ተቀባይ በርቷል (Accepting External / Room Sound - High Sensitivity)'
-            : '🔇 የተጣራ የንግግር ድምፅ በርቷል (Standard Voice Filter)'
+            ? (isAm ? '🔊 የውጭ ድምፅ ተቀባይ በርቷል' : '🔊 External room sound mode enabled')
+            : (isAm ? '🔇 የተጣራ የንግግር ድምፅ በርቷል' : '🔇 Standard voice filter enabled')
         );
       }
     } catch (err) {
@@ -1636,26 +1844,26 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         setTimeout(() => {
           ctx.close().catch(() => {});
           setIsTestingSpeakers(false);
-          triggerToast('🔊 የድምፅ ቃጭል ተሰምቷል! ስፒከርዎ/የጆሮ ማዳመጫዎ በጥሩ ሁኔታ እየሰራ ነው (Speakers Working!)');
+          triggerToast(isAm ? '🔊 የድምፅ ቃጭል ተሰምቷል! ስፒከርዎ በጥሩ ሁኔታ እየሰራ ነው' : '🔊 Sound chime played! Speakers are working properly');
         }, 900);
       } else {
         setIsTestingSpeakers(false);
-        triggerToast('የድምፅ ሞተር አልተደገፈም');
+        triggerToast(isAm ? 'የድምፅ ሞተር አልተደገፈም' : 'Audio engine not supported');
       }
     } catch (e) {
       setIsTestingSpeakers(false);
-      triggerToast('የስፒከር ድምፅ መፈተሽ አልተቻለም');
+      triggerToast(isAm ? 'የስፒከር ድምፅ መፈተሽ አልተቻለም' : 'Could not test speaker output');
     }
   };
 
   const handleTestMic = async () => {
     setIsTestingMic(true);
-    triggerToast('🎤 እባክዎ አሁን ወደ ማይክሮፎንዎ ይናገሩ — ድምፅዎ በስፒከር ላይ ተመልሶ ይሰማዎታል (Say something to test mic)...');
+    triggerToast(isAm ? '🎤 እባክዎ አሁን ወደ ማይክሮፎንዎ ይናገሩ — ድምፅዎ በስፒከር ላይ ይሰማዎታል...' : '🎤 Please speak into your microphone to test voice transmission...');
     try {
       const mic = await ensureActiveMicrophone();
       if (!mic) {
         setIsTestingMic(false);
-        triggerToast('⚠️ ማይክሮፎን አልተፈቀደም! እባክዎ በአሳሽዎ ውስጥ ማይክሮፎን ይፍቀዱ (Allow mic in browser)');
+        triggerToast(isAm ? '⚠️ ማይክሮፎን አልተፈቀደም! እባክዎ በአሳሽዎ ውስጥ ማይክሮፎን ይፍቀዱ' : '⚠️ Microphone permission denied! Please allow access in browser');
         return;
       }
       setMicActive(true);
@@ -1694,20 +1902,20 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
           testCtx.close().catch(() => {});
           setIsTestingMic(false);
           if (detectedVoice) {
-            triggerToast('✅ ማይክሮፎንዎ በጥሩ ሁኔታ እየሰራ ነው! ድምፅዎ በግልጽ ይሰማል (Mic is loud & clear)');
+            triggerToast(isAm ? '✅ ማይክሮፎንዎ በጥሩ ሁኔታ እየሰራ ነው! ድምፅዎ በግልጽ ይሰማል' : '✅ Microphone is working properly! Loud and clear');
           } else {
-            triggerToast('💡 ማይክሮፎኑ ክፍት ነው፤ ለተሻለ ድምፅ ወደ ማይክሮፎኑ ጠጋ ብለው ይናገሩ');
+            triggerToast(isAm ? '💡 ማይክሮፎኑ ክፍት ነው፤ ለተሻለ ድምፅ ወደ ማይክሮፎኑ ጠጋ ብለው ይናገሩ' : '💡 Mic is open; speak closer to your microphone for best audio');
           }
         }, 2800);
       } else {
         setTimeout(() => {
           setIsTestingMic(false);
-          triggerToast('✅ ማይክሮፎንዎ ተከፍቷል (Microphone is ready)');
+          triggerToast(isAm ? '✅ ማይክሮፎንዎ ተከፍቷል' : '✅ Microphone is ready');
         }, 1500);
       }
     } catch (e) {
       setIsTestingMic(false);
-      triggerToast('⚠️ ማይክሮፎን መክፈት አልተቻለም');
+      triggerToast(isAm ? '⚠️ ማይክሮፎን መክፈት አልተቻለም' : '⚠️ Could not access microphone');
     }
   };
 
@@ -1722,19 +1930,29 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       setMicActive(false);
       setAudioLevel(0);
       setIsSpeaking(false);
+      setMicPermissionError(null);
       syncBroadcastStream();
-      triggerToast('Microphone muted (ማይክሮፎን ተዘግቷል)');
+      triggerToast(isAm ? 'ማይክሮፎን ተዘግቷል' : 'Microphone muted');
     } else {
-      setMicActive(true);
       const mic = await ensureActiveMicrophone();
       if (mic) {
+        setMicPermissionError(null);
+        setMicActive(true);
         mic.getAudioTracks().forEach((t) => (t.enabled = true));
+        if (userStream) {
+          userStream.getAudioTracks().forEach((t) => (t.enabled = true));
+        }
+        syncBroadcastStream();
+        triggerToast(isAm ? 'ማይክሮፎን ተከፍቷል - ድምፅዎ ይሰማል' : 'Microphone unmuted - Voice transmitting');
+      } else {
+        setMicActive(false);
+        setMicPermissionError(
+          isAm
+            ? 'የማይክሮፎን ፍቃድ ተከልክሏል ወይም መሣሪያ አልተገኘም። እባክዎ በብሮውዘሩ ፍቃድ ይስጡ።'
+            : 'Microphone permission denied or device not detected. Please allow microphone access in your browser settings.'
+        );
+        triggerToast(isAm ? '⚠️ ማይክሮፎን አልተፈቀደም፤ እባክዎ በብሮውዘሩ ፍቃድ ይስጡ' : '⚠️ Microphone permission denied; please allow in browser settings');
       }
-      if (userStream) {
-        userStream.getAudioTracks().forEach((t) => (t.enabled = true));
-      }
-      syncBroadcastStream();
-      triggerToast('Microphone unmuted (ማይክሮፎን ተከፍቷል - ድምፅዎ ይሰማል)');
     }
   };
 
@@ -1894,7 +2112,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     if (stageMode === 'slides' || stageMode === 'split_ppt') {
       ctx.fillStyle = '#94a3b8';
       ctx.font = '14px sans-serif';
-      ctx.fillText(`• ስላይድ ${currentSlideIndex + 1} / ${slides.length}`, 310, 34);
+      ctx.fillText(isAm ? `• ስላይድ ${currentSlideIndex + 1} / ${slides.length}` : `• Slide ${currentSlideIndex + 1} / ${slides.length}`, 310, 34);
     }
 
     // Live REC Badge & Duration
@@ -1944,7 +2162,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         ctx.fillRect(0, stageY, W, stageH);
         ctx.fillStyle = '#64748b';
         ctx.font = 'bold 22px sans-serif';
-        ctx.fillText('👤 መምህር (Live Teacher Camera Active)', W / 2 - 180, H / 2);
+        ctx.fillText(isAm ? '👤 የቀጥታ መምህር ካሜራ' : '👤 Live Teacher Camera Active', W / 2 - 180, H / 2);
       }
 
       // Teacher identity banner on camera mode
@@ -1962,7 +2180,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
 
       ctx.fillStyle = isSpeaking ? '#34d399' : '#94a3b8';
       ctx.font = '12px sans-serif';
-      ctx.fillText(isSpeaking ? '🎙️ ድምፅ እየተናገሩ ነው (Speaking)' : '🎙️ ድምፅ ዝግጁ ነው (Mic Active)', 42, H - 28);
+      ctx.fillText(isSpeaking ? (isAm ? '🎙️ ድምፅ እየተናገሩ ነው' : '🎙️ Voice Transmitting') : (isAm ? '🎙️ ድምፅ ዝግጁ ነው' : '🎙️ Mic Active'), 42, H - 28);
 
     } else if (stageMode === 'screenshare' && screenVideoRef.current && screenVideoRef.current.readyState >= 2) {
       // 2. SCREEN SHARE STAGE
@@ -2190,7 +2408,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         ctx.fill();
         ctx.fillStyle = '#94a3b8';
         ctx.font = 'bold 16px sans-serif';
-        ctx.fillText('👤 መምህር (Teacher Presenter)', teachX + 55, teachY + 130);
+        ctx.fillText(isAm ? '👤 መምህር' : '👤 Teacher Presenter', teachX + 55, teachY + 130);
       }
 
       // Teacher Name Badge
@@ -2218,13 +2436,13 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
 
       ctx.fillStyle = '#f59e0b';
       ctx.font = 'bold 14px sans-serif';
-      ctx.fillText('📋 የቀጥታ ትምህርት መረጃ (Class Info)', infoX + 20, infoY + 36);
+      ctx.fillText(isAm ? '📋 የቀጥታ ትምህርት መረጃ' : '📋 Live Class Info', infoX + 20, infoY + 36);
 
       ctx.fillStyle = '#cbd5e1';
       ctx.font = '13px sans-serif';
-      ctx.fillText(`• ርዕስ: ${selectedClass?.currentTopic || 'Live Lecture'}`, infoX + 20, infoY + 75);
-      ctx.fillText(`• ደረጃ: ${selectedClass?.level || 'Grade 12'}`, infoX + 20, infoY + 105);
-      ctx.fillText(`• ተሳታፊዎች: ${(selectedClass as any)?.activeStudents || 48} ተማሪዎች`, infoX + 20, infoY + 135);
+      ctx.fillText(isAm ? `• ርዕስ: ${selectedClass?.currentTopic || 'Live Lecture'}` : `• Topic: ${selectedClass?.currentTopic || 'Live Lecture'}`, infoX + 20, infoY + 75);
+      ctx.fillText(isAm ? `• ደረጃ: ${selectedClass?.level || 'Grade 12'}` : `• Level: ${selectedClass?.level || 'Grade 12'}`, infoX + 20, infoY + 105);
+      ctx.fillText(isAm ? `• ተሳታፊዎች: ${(selectedClass as any)?.activeStudents || 48} ተማሪዎች` : `• Attendees: ${(selectedClass as any)?.activeStudents || 48} Students`, infoX + 20, infoY + 135);
 
       ctx.fillStyle = micActive ? '#10b981' : '#ef4444';
       ctx.beginPath();
@@ -2232,7 +2450,13 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.font = '13px sans-serif';
-      ctx.fillText(micActive ? (isSpeaking ? 'ድምፅ እየተሰማ ነው (Speaking)' : 'ማይክሮፎን ክፍት ነው') : 'ድምፅ ዝም ብሏል (Muted)', infoX + 40, infoY + 180);
+      ctx.fillText(
+        micActive
+          ? (isSpeaking ? (isAm ? 'ድምፅ እየተሰማ ነው' : 'Voice Transmitting') : (isAm ? 'ማይክሮፎን ክፍት ነው' : 'Mic Active'))
+          : (isAm ? 'ድምፅ ዝም ብሏል' : 'Muted'),
+        infoX + 40,
+        infoY + 180
+      );
 
       ctx.fillStyle = '#1e293b';
       ctx.beginPath();
@@ -2241,13 +2465,13 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
 
       ctx.fillStyle = '#38bdf8';
       ctx.font = 'bold 12px sans-serif';
-      ctx.fillText('💡 የፈተና ጠቃሚ ማስታወሻ', infoX + 28, infoY + 242);
+      ctx.fillText(isAm ? '💡 የፈተና ጠቃሚ ማስታወሻ' : '💡 Exam Study Tip', infoX + 28, infoY + 242);
 
       ctx.fillStyle = '#94a3b8';
       ctx.font = '11px sans-serif';
-      ctx.fillText('ይህ ቀረጻ ሙሉውን የስላይድ ማብራሪያ፣', infoX + 28, infoY + 270);
-      ctx.fillText('በስላይዱ ላይ የተጻፉ ማስታወሻዎችን እና', infoX + 28, infoY + 292);
-      ctx.fillText('የመምህሩን ድምፅና ገለጻ አጣምሮ ይዟል።', infoX + 28, infoY + 314);
+      ctx.fillText(isAm ? 'ይህ ቀረጻ ሙሉውን የስላይድ ማብራሪያ፣' : 'This recording captures full slides,', infoX + 28, infoY + 270);
+      ctx.fillText(isAm ? 'በስላይዱ ላይ የተጻፉ ማስታወሻዎችን እና' : 'on-screen annotations and equations,', infoX + 28, infoY + 292);
+      ctx.fillText(isAm ? 'የመምህሩን ድምፅና ገለጻ አጣምሮ ይዟል።' : 'plus instructor audio commentary.', infoX + 28, infoY + 314);
     }
   };
 
@@ -2327,18 +2551,28 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       const mime = recordingMimeTypeRef.current || 'video/webm';
 
       if (!recordedChunksRef.current || recordedChunksRef.current.length === 0) {
-        triggerToast('ማሳሰቢያ: ቀረጻው በጣም አጭር ስለነበር ቪዲዮ አልተመዘገበም። እባክዎ ቢያንስ ለ 2-3 ሰከንዶች ይቅረጹ።');
+        triggerToast(
+          isAm
+            ? 'ማሳሰቢያ: ቀረጻው በጣም አጭር ስለነበር ቪዲዮ አልተመዘገበም። እባክዎ ቢያንስ ለ 2-3 ሰከንዶች ይቅረጹ።'
+            : 'Notice: Recording was too short. Please record for at least 2-3 seconds.'
+        );
         return;
       }
 
       const blob = new Blob(recordedChunksRef.current, { type: mime });
       if (blob.size < 500) {
-        triggerToast('ማሳሰቢያ: የቀረጻው ፋይል አልተሟላም፤ እባክዎ እንደገና ይሞክሩ።');
+        triggerToast(
+          isAm
+            ? 'ማሳሰቢያ: የቀረጻው ፋይል አልተሟላም፤ እባክዎ እንደገና ይሞክሩ።'
+            : 'Notice: Recording file incomplete, please try again.'
+        );
         return;
       }
 
       const recId = `rec-${Date.now()}`;
-      const recTitle = `${selectedClass?.title || 'Live Class Session'} (የስላይድ እና የክፍል ቀረጻ)`;
+      const recTitle = isAm
+        ? `${selectedClass?.title || 'የቀጥታ ክፍለ-ጊዜ'} - የቀጥታ ቀረጻ`
+        : `${selectedClass?.title || 'Live Class Session'} - Recorded Lecture`;
       const serverStreamUrl = `/api/recordings/stream/vid-${recId}`;
 
       // Persist blob in IndexedDB and memory cache
@@ -2349,7 +2583,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         id: recId,
         title: recTitle,
         subject: selectedClass?.subject || 'Curriculum',
-        date: 'ዛሬ (Today)',
+        date: isAm ? 'ዛሬ' : 'Today',
         duration: finalDuration,
         url: serverStreamUrl,
       };
@@ -2368,9 +2602,9 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         id: `vid-${recId}`,
         title: recTitle,
         subject: selectedClass?.subject || 'General Studies',
-        subjectId: selectedClass?.subjectId || 'phy12',
+        subjectId: selectedClass?.subjectId || 'g12_physics',
         level: selectedLevel || selectedClass?.level || 'grade_12_natural',
-        chapter: selectedClass?.currentTopic || 'የቀጥታ ስርጭት ትምህርት (Live Classroom Lecture)',
+        chapter: selectedClass?.currentTopic || (isAm ? 'የቀጥታ ስርጭት ትምህርት' : 'Live Classroom Lecture'),
         instructor: authorName,
         duration: finalDuration,
         views: 1,
@@ -2378,14 +2612,21 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         thumbnailGradient: 'from-emerald-950 via-slate-900 to-indigo-950',
         thumbnailUrl: snapshotThumb || selectedClass?.teacherAvatar || teacherPhoto || undefined,
         timestamps: [
-          { time: '00:00', label: 'የቀጥታ ስላይድ ማብራሪያ መግቢያ' },
-          { time: '01:15', label: 'የስላይድ ነጥቦች እና የቦርድ ማስታወሻ' },
+          { time: '00:00', label: isAm ? 'የቀጥታ ስላይድ ማብራሪያ መግቢያ' : 'Lecture Introduction' },
+          { time: '01:15', label: isAm ? 'የስላይድ ነጥቦች እና የቦርድ ማስታወሻ' : 'Core Topics & Blackboard Notes' },
         ],
-        keyTakeaways: [
-          'በቀጥታ የክፍል ስርጭት (Live Class) ወቅት ከስላይድ እና ከመምህሩ ማብራሪያ ጋር የተቀዳ ቪዲዮ ነው።',
-          'የስላይዱ ይዘት፣ በእጅ የተጻፉ ማስታወሻዎች እና የመምህሩ ድምፅና ገለጻ ተካተዋል።',
-        ],
-        summaryNotes: `ይህ ቪዲዮ በ ${authorName} ከነ ሙሉ ስላይዱና የድምፅ ማብራሪያው የተዘጋጀ የቀጥታ ትምህርት ቀረጻ ሲሆን በ "My Videos" ስር በቀጥታ ተቀምጧል።`,
+        keyTakeaways: isAm
+          ? [
+              'በቀጥታ የክፍል ስርጭት ወቅት ከስላይድ እና ከመምህሩ ማብራሪያ ጋር የተቀዳ ቪዲዮ ነው።',
+              'የስላይዱ ይዘት፣ በእጅ የተጻፉ ማስታወሻዎች እና የመምህሩ ድምፅና ገለጻ ተካተዋል።',
+            ]
+          : [
+              'Recorded live session combining slides, ink annotations, and teacher audio.',
+              'Includes high-yield exam principles and problem walkthroughs.',
+            ],
+        summaryNotes: isAm
+          ? `ይህ ቪዲዮ በ ${authorName} ከነ ሙሉ ስላይዱና የድምፅ ማብራሪያው የተዘጋጀ የቀጥታ ትምህርት ቀረጻ ሲሆን በ "My Videos" ስር በቀጥታ ተቀምጧል።`
+          : `Recorded classroom lecture by ${authorName} with full slides and audio commentary, saved in My Videos.`,
         isLiveRecording: true,
         saved: true,
       };
@@ -2405,7 +2646,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         instructor: authorName,
         duration: finalDuration,
         level: selectedLevel || selectedClass?.level || 'grade_12_natural',
-        chapter: selectedClass?.currentTopic || 'የቀጥታ ስርጭት ትምህርት (Live Classroom Lecture)',
+        chapter: selectedClass?.currentTopic || (isAm ? 'የቀጥታ ስርጭት ትምህርት' : 'Live Classroom Lecture'),
         keyTakeaways: newVideoLesson.keyTakeaways,
         blob,
       }).then((srvUrl) => {
@@ -2425,7 +2666,11 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       }
 
       setShowRecordingModal(true);
-      triggerToast(`🔴 የቀረጻው ክፍለ-ጊዜ ቆሟል (${finalDuration})! የስላይዱ፣ የፊትዎና የድምፅዎ ቪዲዮ ወደ "My Videos" ገብቷል!`);
+      triggerToast(
+        isAm
+          ? `🔴 የቀረጻው ክፍለ-ጊዜ ቆሟል (${finalDuration})! የስላይዱ፣ የፊትዎና የድምፅዎ ቪዲዮ ወደ "My Videos" ገብቷል!`
+          : `🔴 Recording stopped (${finalDuration})! Video saved to "My Videos".`
+      );
     } else {
       setIsRecording(true);
       setIsRecordingPaused(false);
@@ -2686,13 +2931,21 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         }
 
         if (audioTrackAttached) {
-          triggerToast('🔴 ቀረጻው ጀምሯል! የስላይድ ማብራሪያ፣ ማስታወሻዎችና የመምህሩ ድምፅ (Voice Audio) በቀጥታ እየተቀዱ ነው!');
+          triggerToast(
+            isAm
+              ? '🔴 ቀረጻው ጀምሯል! የስላይድ ማብራሪያ፣ ማስታወሻዎችና የመምህሩ ድምፅ በቀጥታ እየተቀዱ ነው!'
+              : '🔴 Recording started! Capturing slides, blackboard notes, and teacher audio live!'
+          );
         } else {
-          triggerToast('🔴 ቀረጻው ጀምሯል! (ማሳሰቢያ: ማይክሮፎን አልበራም ወይም ድምፅ አልተገኘም)');
+          triggerToast(
+            isAm
+              ? '🔴 ቀረጻው ጀምሯል! (ማሳሰቢያ: ማይክሮፎን አልበራም)'
+              : '🔴 Recording started (Notice: Microphone is muted)'
+          );
         }
       } catch (err) {
         console.warn('MediaRecorder error:', err);
-        triggerToast('🔴 የቀረጻ ስህተት አጋጥሟል፤ እባክዎ እንደገና ይሞክሩ።');
+        triggerToast(isAm ? '🔴 የቀረጻ ስህተት አጋጥሟል፤ እባክዎ እንደገና ይሞክሩ።' : '🔴 Recording error occurred; please try again.');
       }
     }
   };
@@ -2828,11 +3081,11 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       const prevSnap = canvasHistory[canvasHistory.length - 1];
       ctx.putImageData(prevSnap, 0, 0);
       setCanvasHistory((hist) => hist.slice(0, -1));
-      triggerToast('የመጨረሻው ጽሑፍ ተመልሷል (Undo successful)');
+      triggerToast(isAm ? 'የመጨረሻው ጽሑፍ ተመልሷል' : 'Undo completed');
     } else {
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      triggerToast('ሰሌዳው ባዶ ነው (Board is empty)');
+      triggerToast(isAm ? 'ሰሌዳው ባዶ ነው' : 'Board is empty');
     }
   };
 
@@ -2850,7 +3103,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
 
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    triggerToast('የሰሌዳው ጽሑፍ በሙሉ ተሰርዟል! (Whiteboard cleared)');
+    triggerToast(isAm ? 'የሰሌዳው ጽሑፍ በሙሉ ተሰርዟል!' : 'Whiteboard cleared successfully!');
   };
 
   const downloadCanvasImage = () => {
@@ -3041,10 +3294,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     setSlideStrokesMap((prev) => {
       const list = prev[currentSlideIndex] || [];
       if (list.length === 0) {
-        triggerToast('በስላይዱ ላይ የሚመለስ ጽሑፍ የለም (Nothing to undo)');
+        triggerToast(isAm ? 'በስላይዱ ላይ የሚመለስ ጽሑፍ የለም' : 'Nothing to undo');
         return prev;
       }
-      triggerToast('የመጨረሻው የስላይድ ጽሑፍ/ማስመሪያ ተመልሷል (Undo)');
+      triggerToast(isAm ? 'የመጨረሻው የስላይድ ጽሑፍ ተመልሷል' : 'Undo completed');
       return {
         ...prev,
         [currentSlideIndex]: list.slice(0, -1),
@@ -3062,7 +3315,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       const ctx = canvas.getContext('2d');
       if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
-    triggerToast('በዚህ ስላይድ ላይ የተጻፉት በሙሉ ተሰርዘዋል! (Cleared slide ink)');
+    triggerToast(isAm ? 'በዚህ ስላይድ ላይ የተጻፉት በሙሉ ተሰርዘዋል!' : 'Slide annotations cleared');
   };
 
   const handleDownloadSlideNotes = () => {
@@ -3073,7 +3326,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     link.download = `${selectedClass.subject}_Slide_${currentSlideIndex + 1}_Annotated_Notes.png`;
     link.href = imageUri;
     link.click();
-    triggerToast('የስላይዱ ማስታወሻ በምስል ተቀምጧል! (Slide notes saved)');
+    triggerToast(isAm ? 'የስላይዱ ማስታወሻ በምስል ተቀምጧል!' : 'Slide notes saved');
   };
 
   // Redraw slide annotations on slide navigation or mode switch
@@ -3096,7 +3349,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
           type="button"
           onClick={() => {
             setIsSlideAnnotating((prev) => !prev);
-            triggerToast(!isSlideAnnotating ? 'በስላይዱ ላይ መጻፊያ ነቅቷል (Slide drawing enabled)' : 'በስላይዱ ላይ መጻፊያ ቆሟል (Slide drawing paused)');
+            triggerToast(!isSlideAnnotating ? (isAm ? 'በስላይዱ ላይ መጻፊያ በርቷል' : 'Slide drawing enabled') : (isAm ? 'በስላይዱ ላይ መጻፊያ ቆሟል' : 'Slide drawing paused'));
           }}
           className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
             isSlideAnnotating
@@ -3106,7 +3359,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
           title="Toggle Drawing/Highlighting on Slide"
         >
           <Pencil className="w-3.5 h-3.5" />
-          <span>{isSlideAnnotating ? 'ስላይድ ላይ ጻፍ/አስምር: በርቷል' : 'ስላይድ ላይ መጻፊያ: ጠፍቷል'}</span>
+          <span>{isSlideAnnotating ? (isAm ? 'ስላይድ ላይ ጻፍ/አስምር: በርቷል' : 'Slide Annotations: ON') : (isAm ? 'ስላይድ ላይ መጻፊያ: ጠፍቷል' : 'Slide Annotations: OFF')}</span>
           {isSlideAnnotating && <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>}
         </button>
 
@@ -3124,10 +3377,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
               className={`px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
                 slideTool === 'highlighter' ? 'bg-amber-400 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
               }`}
-              title="አስማሪ / ማድመቂያ (Highlighter - Semi-transparent thick stroke for underlining sentences)"
+              title={isAm ? 'አስማሪ / ማድመቂያ' : 'Highlighter'}
             >
               <Highlighter className="w-3.5 h-3.5" />
-              <span>አስማሪ (Highlighter)</span>
+              <span>{isAm ? 'አስማሪ' : 'Highlighter'}</span>
             </button>
 
             {/* Pen */}
@@ -3140,10 +3393,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
               className={`px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
                 slideTool === 'pen' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-300 hover:text-white'
               }`}
-              title="ብዕር (Pen - Sharp solid ink for notes, formulas and arrows)"
+              title={isAm ? 'ብዕር' : 'Pen'}
             >
               <PenTool className="w-3.5 h-3.5" />
-              <span>ብዕር (Pen)</span>
+              <span>{isAm ? 'ብዕር' : 'Pen'}</span>
             </button>
 
             {/* Eraser */}
@@ -3156,10 +3409,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
               className={`px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
                 slideTool === 'eraser' ? 'bg-rose-500 text-white shadow-xs' : 'text-slate-300 hover:text-white'
               }`}
-              title="ማጥፊያ (Eraser - Clears ink without touching slide content)"
+              title={isAm ? 'ማጥፊያ' : 'Eraser'}
             >
               <Eraser className="w-3.5 h-3.5" />
-              <span>ማጥፊያ</span>
+              <span>{isAm ? 'ማጥፊያ' : 'Eraser'}</span>
             </button>
           </div>
         )}
@@ -3172,11 +3425,11 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
           {slideTool !== 'eraser' && (
             <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700">
               {[
-                { color: '#facc15', label: 'ቢጫ (Yellow)' },
-                { color: '#38bdf8', label: 'ሲያን (Cyan)' },
-                { color: '#34d399', label: 'አረንጓዴ (Green)' },
-                { color: '#f87171', label: 'ቀይ (Red)' },
-                { color: '#ffffff', label: 'ነጭ (White)' },
+                { color: '#facc15', label: isAm ? 'ቢጫ' : 'Yellow' },
+                { color: '#38bdf8', label: isAm ? 'ሲያን' : 'Cyan' },
+                { color: '#34d399', label: isAm ? 'አረንጓዴ' : 'Green' },
+                { color: '#f87171', label: isAm ? 'ቀይ' : 'Red' },
+                { color: '#ffffff', label: isAm ? 'ነጭ' : 'White' },
               ].map(({ color, label }) => (
                 <button
                   key={color}
@@ -3199,25 +3452,25 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 type="button"
                 onClick={() => setSlidePenSize(3)}
                 className={`px-1.5 py-0.5 rounded cursor-pointer ${slidePenSize <= 4 ? 'bg-slate-700 text-white font-bold' : 'text-slate-400'}`}
-                title="ቀጭን መስመር (Fine)"
+                title={isAm ? 'ቀጭን መስመር' : 'Fine Line'}
               >
-                ቀጭን
+                {isAm ? 'ቀጭን' : 'Fine'}
               </button>
               <button
                 type="button"
                 onClick={() => setSlidePenSize(6)}
                 className={`px-1.5 py-0.5 rounded cursor-pointer ${slidePenSize === 6 ? 'bg-slate-700 text-white font-bold' : 'text-slate-400'}`}
-                title="መካከለኛ መስመር (Medium)"
+                title={isAm ? 'መካከለኛ መስመር' : 'Medium Line'}
               >
-                መካከለኛ
+                {isAm ? 'መካከለኛ' : 'Medium'}
               </button>
               <button
                 type="button"
                 onClick={() => setSlidePenSize(14)}
                 className={`px-1.5 py-0.5 rounded cursor-pointer ${slidePenSize >= 12 ? 'bg-slate-700 text-white font-bold' : 'text-slate-400'}`}
-                title="ሰፊ አስማሪ (Highlighter)"
+                title={isAm ? 'ሰፊ አስማሪ' : 'Highlighter'}
               >
-                ሰፊ አስማሪ
+                {isAm ? 'ሰፊ አስማሪ' : 'Highlighter'}
               </button>
             </div>
           )}
@@ -3227,7 +3480,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             type="button"
             onClick={handleSlideUndo}
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition cursor-pointer"
-            title="የመጨረሻውን መልስ (Undo)"
+            title={isAm ? 'የመጨረሻውን መልስ' : 'Undo'}
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
@@ -3237,7 +3490,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             type="button"
             onClick={handleSlideClear}
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 border border-slate-700 transition cursor-pointer"
-            title="በዚህ ስላይድ ላይ የተጻፈውን በሙሉ አጥፋ (Clear Slide Ink)"
+            title={isAm ? 'በዚህ ስላይድ ላይ የተጻፈውን በሙሉ አጥፋ' : 'Clear Slide Ink'}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -3247,7 +3500,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             type="button"
             onClick={handleDownloadSlideNotes}
             className="p-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-600 transition cursor-pointer"
-            title="የተጻፈበትን ስላይድ በምስል አውርድ (Save Annotated Slide PNG)"
+            title={isAm ? 'የተጻፈበትን ስላይድ በምስል አውርድ' : 'Save Annotated Slide'}
           >
             <Download className="w-3.5 h-3.5" />
           </button>
@@ -3256,12 +3509,13 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     </div>
   );
   // -------------------------------------------------------------
-  const handlePptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const fileName = file.name;
     const baseName = fileName.replace(/\.[^/.]+$/, '');
+    const lowerName = fileName.toLowerCase();
 
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
@@ -3269,11 +3523,16 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         const imageUrl = reader.result as string;
         const newSlide: LiveSlide = {
           title: `🖼️ ${baseName}`,
-          subtitle: `የተጫነ ዲያግራም (${fileName})`,
-          bulletPoints: [
-            'ይህ ስላይድ ከመሳሪያዎ በቀጥታ የተጫነ ምስል/ዲያግራም ነው',
-            'ዲያግራሙን እያብራሩ በስላይድ ላይ ማስታወሻ ይጻፉ',
-          ],
+          subtitle: isAm ? `የተጫነ ዲያግራም (${fileName})` : `Uploaded Diagram (${fileName})`,
+          bulletPoints: isAm
+            ? [
+                'ይህ ስላይድ ከመሳሪያዎ በቀጥታ የተጫነ ምስል/ዲያግራም ነው',
+                'ዲያግራሙን እያብራሩ በስላይድ ላይ ማስታወሻ ይጻፉ',
+              ]
+            : [
+                'This slide is an uploaded diagram/image from your device',
+                'Annotate directly on the slide while lecturing and explaining key concepts',
+              ],
           imageUrl,
         };
         setCustomSlidesMap((prev) => {
@@ -3282,61 +3541,128 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         });
         setCurrentSlideIndex((prev) => prev + 1);
         setStageMode('slides');
-        triggerToast(`የዲያግራም ስላይድ ተጭኗል: ${fileName}`);
+        triggerToast(isAm ? `የዲያግራም ስላይድ ተጭኗል: ${fileName}` : `Diagram slide uploaded: ${fileName}`);
       };
       reader.readAsDataURL(file);
-    } else {
-      // PowerPoint (.pptx, .ppt, .pdf, .txt)
-      const reader = new FileReader();
-      reader.onload = () => {
-        const generatedSlides: LiveSlide[] = [
-          {
-            title: `📊 ${baseName}`,
-            subtitle: `የPowerPoint ሰነድ (${fileName})`,
-            bulletPoints: [
-              `የPowerPoint/PDF ሰነድ በቀጥታ ትምህርት ስርጭት ላይ ተከፍቷል`,
-              `ስላይዶቹን ወደፊት ወይም ወደኋላ እያንሸራተቱ ያስተምሩ`,
-              `የቁልፍ ሰሌዳ ቀስቶችን (← / → / Space) ወይም የስክሪን አዝራሮችን ይጠቀሙ`,
-              `በስላይዱ ላይ በቀጥታ ለማስመር ወይም ለመጻፍ '✏️ ጻፍ' የሚለውን ይጫኑ`,
-            ],
-            formulaOrQuote: 'P = V · I = I² · R',
-          },
-          {
-            title: `${baseName}: ዋና ዋና ነጥቦች (Core Topics)`,
-            subtitle: 'ክፍል 1 - ንድፈ-ሀሳብና ማብራሪያ',
-            bulletPoints: [
-              '1. መሰረታዊ የትምህርት ፅንሰ-ሀሳቦች (Core Principles)',
-              '2. በአገር አቀፍ ፈተና (ESSLCE Matric) በብዛት የሚወጡ ጥያቄዎች',
-              '3. የተማሪዎች የተለመዱ ስህተቶችና መፍትሔዎች',
-            ],
-            formulaOrQuote: 'ε = -N · (dΦ / dt)',
-          },
-          {
-            title: `${baseName}: የፈተና ጥያቄዎችና ልምምድ`,
-            subtitle: 'ክፍል 2 - የክፍል ስራና የቻት ውይይት',
-            bulletPoints: [
-              'ተማሪዎች መልሶቻቸውን በቀጥታ በቻት (Live Chat) ላይ እንዲልኩ ይጠይቁ',
-              'አሰራሩን በዲጂታል ሰሌዳ (Whiteboard) ላይ ደረጃ በደረጃ ይፍቱ',
-            ],
-            formulaOrQuote: 'F_net = m · a  |  W = F · d',
-          },
-        ];
+      return;
+    }
+
+    if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
+      try {
+        triggerToast(isAm ? `PDF "${fileName}" እየተነበበ ነው...` : `Extracting pages from "${fileName}"...`);
+        const buffer = await file.arrayBuffer();
+        const [pdfjs, workerMod] = await Promise.all([
+          import('pdfjs-dist'),
+          import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+        ]);
+        if (pdfjs.GlobalWorkerOptions) {
+          pdfjs.GlobalWorkerOptions.workerSrc = workerMod.default;
+        }
+        const pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+        const total = pdfDoc.numPages;
+        const extractedSlides: LiveSlide[] = [];
+
+        for (let p = 1; p <= Math.min(total, 40); p++) {
+          const page = await pdfDoc.getPage(p);
+          const tc = await page.getTextContent();
+          const lines = tc.items
+            .map((it: any) => ('str' in it ? it.str : ''))
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          const sentences = lines
+            ? lines.split(/(?<=[.!?])\s+|\s{2,}|•/).map((s) => s.trim()).filter((s) => s.length > 2)
+            : [];
+
+          const slideTitle = sentences[0]
+            ? sentences[0].slice(0, 75)
+            : `${baseName} — ${isAm ? 'ገጽ' : 'Page'} ${p}`;
+          const bulletPoints = sentences.length > 1
+            ? sentences.slice(1, 6)
+            : sentences.length === 1
+              ? [sentences[0]]
+              : [isAm ? `ከ ${fileName} ገጽ ${p} ይዘት` : `Content from ${fileName} (Page ${p})`];
+
+          extractedSlides.push({
+            title: slideTitle,
+            subtitle: `${baseName} • ${isAm ? 'ገጽ' : 'Page'} ${p} / ${total}`,
+            bulletPoints,
+          });
+        }
+
+        if (extractedSlides.length > 0) {
+          setCustomSlidesMap((prev) => ({
+            ...prev,
+            [selectedClass.id]: extractedSlides,
+          }));
+          setCurrentSlideIndex(0);
+          setStageMode('slides');
+          triggerToast(isAm ? `${extractedSlides.length} ገጾች ከ "${fileName}" ተከፍተዋል!` : `Loaded ${extractedSlides.length} real slides from "${fileName}"!`);
+          return;
+        }
+      } catch (err) {
+        console.warn('LiveClassView PDF extraction note:', err);
+      }
+    }
+
+    if (lowerName.endsWith('.txt') || lowerName.endsWith('.md') || file.type.startsWith('text/')) {
+      try {
+        const text = await file.text();
+        const blocks = text
+          .split(/\n(?=(?:---+|===+|Slide\s+\d+|Page\s+\d+|ስላይድ\s+\d+))|\n\s*\n/)
+          .map((b) => b.trim())
+          .filter(Boolean);
+
+        const parsedSlides: LiveSlide[] = (blocks.length > 0 ? blocks : [text || baseName]).map((block, idx) => {
+          const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+          const heading = (lines[0] || `${baseName} (${idx + 1})`).replace(/^[-#=*]+\s*/, '');
+          const bullets = lines.slice(1, 7).map((l) => l.replace(/^[-•*]\s*/, ''));
+          return {
+            title: heading.slice(0, 80),
+            subtitle: `${fileName} • Slide ${idx + 1}`,
+            bulletPoints: bullets.length > 0 ? bullets : [block.slice(0, 220)],
+          };
+        });
 
         setCustomSlidesMap((prev) => ({
           ...prev,
-          [selectedClass.id]: generatedSlides,
+          [selectedClass.id]: parsedSlides,
         }));
         setCurrentSlideIndex(0);
         setStageMode('slides');
-        triggerToast(`የPowerPoint ስላይዶች ተከፍተዋል (${fileName})`);
-      };
-
-      if (fileName.endsWith('.txt')) {
-        reader.readAsText(file);
-      } else {
-        reader.readAsArrayBuffer(file);
+        triggerToast(isAm ? `${parsedSlides.length} ስላይዶች ከ "${fileName}" ተከፍተዋል!` : `Loaded ${parsedSlides.length} slides from "${fileName}"!`);
+        return;
+      } catch (err) {
+        console.warn('LiveClassView text parse note:', err);
       }
     }
+
+    // Fallback for binary PPT/PPTX outlines (cannot parse native binary PPTX directly in browser without server conversion)
+    const fallbackSlides: LiveSlide[] = [
+      {
+        title: `📊 ${baseName}`,
+        subtitle: `${fileName} (${selectedClass?.subject || 'Live Lecture'})`,
+        bulletPoints: isAm
+          ? [
+              `"${fileName}" በስላይድ መድረኩ ላይ ተዘጋጅቷል።`,
+              'ስላይዶችን በሙሉ ይዘት ለማሳየት PDF ወይም TXT ይጫኑ ወይም Screen Share ይጠቀሙ።',
+              'በስላይዱ ላይ በቀጥታ ለመጻፍ "Slide Annotations" ይክፈቱ።',
+            ]
+          : [
+              `Presentation deck "${fileName}" attached to classroom stage.`,
+              'For full page-by-page slide rendering, upload as PDF or use Share Screen.',
+              'Click Slide Annotations above to highlight or write equations live.',
+            ],
+      },
+    ];
+    setCustomSlidesMap((prev) => ({
+      ...prev,
+      [selectedClass.id]: fallbackSlides,
+    }));
+    setCurrentSlideIndex(0);
+    setStageMode('slides');
+    triggerToast(isAm ? `ስላይድ ተጭኗል (${fileName})` : `Presentation loaded (${fileName})`);
   };
 
   const handleLoadPresetPpt = (subjectKey: string) => {
@@ -3429,12 +3755,12 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     }));
     setCurrentSlideIndex(0);
     setStageMode('slides');
-    triggerToast(`የ${subjectKey} የትምህርት PPT ስላይዶች ተከፍተዋል!`);
+    triggerToast(isAm ? `የ${subjectKey} የትምህርት PPT ስላይዶች ተከፍተዋል!` : `${subjectKey} curriculum slides loaded!`);
   };
 
   const handleAddNewSlide = () => {
     if (!newSlideTitle.trim()) {
-      triggerToast('እባክዎ የስላይዱን ርዕስ ያስገቡ');
+      triggerToast(isAm ? 'እባክዎ የስላይዱን ርዕስ ያስገቡ' : 'Please enter a title for the slide');
       return;
     }
 
@@ -3458,7 +3784,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     setNewSlideBullets('');
     setNewSlideFormula('');
     setShowAddSlideModal(false);
-    triggerToast('አዲስ ስላይድ በተሳካ ሁኔታ ተጨምሯል!');
+    triggerToast(isAm ? 'አዲስ ስላይድ በተሳካ ሁኔታ ተጨምሯል!' : 'New slide added successfully!');
   };
 
   // Keyboard navigation for PowerPoint slides
@@ -3481,68 +3807,260 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [stageMode, slides.length]);
 
-  // Send Chat Message
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMessage.trim()) return;
+  const handleChatAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setChatAttachment({ name: file.name, url });
+      triggerToast(`📎 File attached: ${file.name}`);
+    }
+  };
 
-    const isQuestion = inputMessage.includes('?') || inputMessage.toLowerCase().startsWith('what') || inputMessage.toLowerCase().startsWith('how') || inputMessage.toLowerCase().startsWith('why') || inputMessage.includes('ማብራሪያ');
+  const handleInsertEmoji = (emoji: string) => {
+    setInputMessage((prev) => prev + emoji);
+  };
+
+  const handleQuickDoubtPrompt = (promptText: string) => {
+    setIsQuestionMode(true);
+    setInputMessage(promptText + ' ');
+  };
+
+  // Send Chat Message
+  const handleSendMessage = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if ((!inputMessage.trim() && !chatAttachment) || isSubmittingChat) return;
+
+    setIsSubmittingChat(true);
+
+    const isQuestion = isQuestionMode || inputMessage.includes('?') || inputMessage.toLowerCase().startsWith('what') || inputMessage.toLowerCase().startsWith('how') || inputMessage.toLowerCase().startsWith('why') || inputMessage.toLowerCase().startsWith('can') || inputMessage.toLowerCase().startsWith('could');
 
     const newMsg: LiveChatMessage = {
-      id: `msg-${Date.now()}`,
-      sender: currentUser?.name || 'You (Student)',
-      role: currentUser?.role === 'admin' ? 'teacher' : 'student',
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      sender: currentUser?.name || (isAuthorizedTeacher ? 'Instructor (You)' : 'You (Student)'),
+      userId: currentUser?.id || `user-${Date.now()}`,
+      role: isAuthorizedTeacher ? 'teacher' : (currentUser?.role === 'admin' ? 'teacher' : 'student'),
       text: inputMessage.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isQuestion,
+      isAnswered: false,
       upvotes: 0,
+      reactions: {},
+      attachmentName: chatAttachment?.name,
+      attachmentUrl: chatAttachment?.url,
+      replyTo: replyingTo ? { id: replyingTo.id, sender: replyingTo.sender, text: replyingTo.text.slice(0, 80) } : undefined,
     };
 
+    // Optimistically update
     setChatMessages((prev) => [...prev, newMsg]);
+
+    // Broadcast in real-time over WebSocket
+    liveClientRef.current?.sendChatMessage(newMsg);
+
     setInputMessage('');
+    setChatAttachment(null);
+    setIsQuestionMode(false);
+    setShowEmojiPicker(false);
+    setReplyingTo(null);
+    setIsSubmittingChat(false);
 
     // If it's a question, trigger an AI Co-Tutor response after 1.5 seconds!
     if (isQuestion) {
       setTimeout(() => {
         const aiReplies: Record<string, string> = {
-          default: `Thanks for the question! In ${selectedClass.subject}, always verify given constants and unit conversions before substituting into formulas.`,
-          Physics: `Helpful tip: For electromagnetic induction, induced EMF opposes flux change according to Lenz's law. Pay attention to coil area and orientation angle!`,
-          Mathematics: `Exam shortcut: In calculus or algebra multiple-choice problems, testing extreme values (like x=0 or x=1) can quickly eliminate wrong choices.`,
-          Geography: `Remember that Ethiopia's drainage systems are predominantly influenced by topography and the Great East African Rift Valley.`,
+          default: `Thanks for asking! In ${selectedClass.subject}, always double check given parameters, units, and boundary conditions before applying key equations.`,
+          Physics: `Study Tip: For electromagnetic induction, remember Lenz's Law dictates the direction of induced EMF opposing flux change. Keep track of magnetic field angle!`,
+          Mathematics: `Exam Strategy: For Grade 12 National Exam multiple-choice problems, testing extreme values or graphing asymptotes often eliminates wrong answers quickly.`,
+          Geography: `Key Fact: The Great East African Rift Valley divides Ethiopian topography into the northwestern and southeastern highlands, heavily dictating drainage basins.`,
         };
 
         const replyText = aiReplies[selectedClass.subject] || aiReplies.default;
 
         const aiResponse: LiveChatMessage = {
           id: `msg-ai-${Date.now()}`,
-          sender: 'EthioAI Study Copilot',
+          sender: 'EthioAI Study Assistant',
           role: 'ai_tutor',
           text: replyText,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           upvotes: 12,
+          reactions: { '💡': 8, '👏': 4 },
         };
 
         setChatMessages((prev) => [...prev, aiResponse]);
+        liveClientRef.current?.sendChatMessage(aiResponse);
       }, 1500);
     }
   };
 
-  const handleUpvote = (id: string) => {
+  const handleSendReaction = (messageId: string, emoji: string) => {
     setChatMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, upvotes: m.upvotes + 1 } : m))
+      prev.map((m) => {
+        if (m.id !== messageId) return m;
+        const reactions = { ...(m.reactions || {}) };
+        reactions[emoji] = (reactions[emoji] || 0) + 1;
+        return { ...m, reactions, upvotes: m.upvotes + 1 };
+      })
     );
+    liveClientRef.current?.sendChatReaction(messageId, emoji);
   };
 
-  const handleToggleAnswered = (id: string) => {
+  const handleToggleAnswered = (id: string, currentAnswered?: boolean) => {
+    const nextState = !currentAnswered;
+    const answeredBy = currentUser?.name || 'Instructor';
+    const answeredAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setChatMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, isAnswered: !m.isAnswered } : m))
+      prev.map((m) =>
+        m.id === id ? { ...m, isAnswered: nextState, answeredBy, answeredAt } : m
+      )
     );
-    triggerToast('Question marked as answered by teacher!');
+    liveClientRef.current?.sendChatAnswer(id, nextState);
+    triggerToast(nextState ? 'Question marked as answered.' : 'Question marked as pending review.');
+  };
+
+  const handleAnswerQuestionSubmit = (messageId: string, answerText: string) => {
+    if (!answerText.trim()) return;
+    const teacherName = currentUser?.name || 'Instructor';
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setChatMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? {
+              ...m,
+              isAnswered: true,
+              teacherAnswer: answerText.trim(),
+              answeredBy: teacherName,
+              answeredAt: now,
+            }
+          : m
+      )
+    );
+    liveClientRef.current?.sendChatAnswer(messageId, true, answerText.trim());
+    setAnsweringQuestionId(null);
+    setTeacherAnswerText('');
+    triggerToast('Instructor response published to class.');
+  };
+
+  const handleDeleteChatMessage = (id: string) => {
+    setChatMessages((prev) => prev.filter((m) => m.id !== id));
+    liveClientRef.current?.sendChatDelete(id);
+    triggerToast('Message deleted.');
+  };
+
+  const handleTogglePinChatMessage = (id: string) => {
+    const target = chatMessages.find((m) => m.id === id);
+    const newPinned = !target?.isPinned;
+    setChatMessages((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, isPinned: newPinned } : m))
+    );
+    liveClientRef.current?.sendChatPin(id, newPinned);
+    triggerToast(newPinned ? 'Message pinned to top.' : 'Message unpinned.');
+  };
+
+  // Upload a pre-recorded video directly inside the Live Classroom for teaching & explanation
+  const handleUploadLiveLessonVideo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const looksLikeVideo =
+      file.type.startsWith('video/') || /\.(mp4|webm|mov|ogg|ogv|m4v)$/i.test(file.name);
+    if (!looksLikeVideo) {
+      triggerToast(isAm ? 'እባክዎ ትክክለኛ የቪዲዮ ፋይል ይምረጡ (MP4, WebM, MOV)' : 'Please select a valid video file (MP4, WebM, MOV)');
+      return;
+    }
+
+    setIsUploadingLiveLessonVideo(true);
+    const vidId = `live-lesson-${selectedClass.id}-${Date.now()}`;
+    try {
+      const localUrl = await saveRecordedVideoBlob(vidId, file);
+      const serverStreamUrl = await uploadRecordedVideoToServer({
+        id: vidId,
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        subject: selectedClass.subject,
+        instructor: currentUser?.name || selectedClass.teacherName || 'Teacher',
+        duration: '15:00',
+        level: selectedClass.level,
+        chapter: selectedClass.currentTopic || selectedClass.title,
+        blob: file,
+        isLiveRecording: false,
+        archiveInLibrary: false,
+      });
+
+      const finalUrl = serverStreamUrl || localUrl;
+      setRoomLessonVideoUrl(finalUrl);
+      setRoomLessonYoutubeId(null);
+      setRoomLessonVideoTitle(file.name);
+      setStageMode('video');
+
+      if (onUpdateLiveClass) {
+        onUpdateLiveClass({
+          ...selectedClass,
+          videoUrl: finalUrl,
+          youtubeId: undefined,
+        });
+      }
+
+      liveClientRef.current?.updateStage('video', currentSlideIndex, {
+        videoUrl: finalUrl,
+        youtubeId: null,
+        videoTitle: file.name,
+      });
+
+      triggerToast(
+        isAm
+          ? `✅ ቪዲዮው "${file.name}" ተጭኗል! Play በመጫን ለተማሪዎች ማስረዳት ይችላሉ።`
+          : `✅ Video "${file.name}" loaded! Press Play and use your mic to explain it to students.`
+      );
+    } catch (err) {
+      console.warn('Error uploading lesson video for live class:', err);
+      triggerToast(isAm ? 'ቪዲዮውን መጫን አልተቻለም' : 'Could not load video file');
+    } finally {
+      setIsUploadingLiveLessonVideo(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleAttachQuickYoutubeToLiveRoom = (e: React.FormEvent) => {
+    e.preventDefault();
+    const raw = quickYoutubeUrl.trim();
+    if (!raw) return;
+    const match = raw.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|shorts\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+    const extractedId = match ? match[1] : (/^[a-zA-Z0-9_-]{11}$/.test(raw) ? raw : '');
+    if (!extractedId) {
+      triggerToast(isAm ? 'እባክዎ ትክክለኛ የYouTube ሊንክ ወይም ID ያስገቡ' : 'Please enter a valid YouTube link or 11-character ID');
+      return;
+    }
+
+    setRoomLessonYoutubeId(extractedId);
+    setRoomLessonVideoUrl(null);
+    setRoomLessonVideoTitle(null);
+    setStageMode('video');
+    setShowQuickYoutubeInput(false);
+    setQuickYoutubeUrl('');
+
+    if (onUpdateLiveClass) {
+      onUpdateLiveClass({
+        ...selectedClass,
+        youtubeId: extractedId,
+        videoUrl: undefined,
+      });
+    }
+
+    liveClientRef.current?.updateStage('video', currentSlideIndex, {
+      youtubeId: extractedId,
+      videoUrl: null,
+      videoTitle: null,
+    });
+
+    triggerToast(isAm ? 'የYouTube ትምህርት ቪዲዮ በክፍሉ ተያይዟል!' : 'YouTube lesson video attached to live classroom!');
   };
 
   // Teacher Start Class submission
-  const handleTeacherStartClass = (e: React.FormEvent) => {
+  const handleTeacherStartClass = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAuthorizedTeacher) {
+      triggerToast(isAm ? 'ተማሪዎች አዲስ የቀጥታ ክፍል መጨመር አይችሉም።' : 'Students cannot create live classes.');
+      setShowStartModal(false);
+      return;
+    }
     if (!newClassTitle.trim()) {
       triggerToast('Please provide a class title.');
       return;
@@ -3551,23 +4069,52 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
     // Extract YouTube ID if URL is provided
     let extractedYoutubeId: string | undefined = undefined;
     if (newClassYoutube.trim()) {
-      const match = newClassYoutube.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+      const match = newClassYoutube.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|shorts\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
       extractedYoutubeId = match ? match[1] : newClassYoutube.trim();
     }
 
+    const classId = `live-${Date.now()}`;
+    let uploadedVideoUrl: string | undefined = undefined;
+    if (newClassVideoFile) {
+      setIsUploadingNewClassVideo(true);
+      try {
+        const vidId = `live-lesson-${classId}`;
+        const localUrl = await saveRecordedVideoBlob(vidId, newClassVideoFile);
+        const serverStreamUrl = await uploadRecordedVideoToServer({
+          id: vidId,
+          title: newClassTitle.trim(),
+          subject: newClassSubject,
+          instructor: currentUser?.name || 'Teacher',
+          duration: '15:00',
+          level: newClassLevel,
+          chapter: newClassTopic.trim() || newClassTitle.trim(),
+          blob: newClassVideoFile,
+          isLiveRecording: false,
+          archiveInLibrary: false,
+        });
+        uploadedVideoUrl = serverStreamUrl || localUrl;
+      } finally {
+        setIsUploadingNewClassVideo(false);
+      }
+    }
+
+    const isTeacher = currentUser?.role === 'teacher';
+    const teacherName = isTeacher && currentUser?.name ? currentUser.name : (isAm ? 'መምህር አልተመደበም' : 'No Teacher Assigned');
+    const teacherTitle = isTeacher ? (isAm ? 'መምህር' : 'Teacher') : (isAm ? 'መምህር ይጠበቃል (Pending Assignment)' : 'Pending Assignment');
+
     const createdClass: LiveClass = {
-      id: `live-${Date.now()}`,
+      id: classId,
       title: newClassTitle.trim(),
       subject: newClassSubject,
       subjectId: `subj-${newClassSubject.toLowerCase()}`,
       level: newClassLevel,
-      teacherName: currentUser?.name || 'Instructor',
-      teacherTitle: 'National Exam Certified Educator',
-      teacherAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      isLiveNow: true,
-      scheduledTime: 'Live Right Now',
+      teacherName,
+      teacherTitle,
+      teacherAvatar: '',
+      isLiveNow: startAsLive,
+      scheduledTime: startAsLive ? (isAm ? 'አሁን በቀጥታ' : 'Live Right Now') : (isAm ? 'የታቀደ ክፍለ-ጊዜ' : 'Scheduled Session'),
       durationMinutes: 75,
-      currentViewers: 1,
+      currentViewers: startAsLive ? 1 : 0,
       currentTopic: newClassTopic.trim() || 'Interactive Lecture & Problem Solving',
       slides: [
         {
@@ -3586,29 +4133,65 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         options: ['Fully confident (100%)', 'Moderate (needs review)', 'Challenging (need help)'],
         votes: [1, 0, 0],
       },
-      hasRecording: true,
-      materialsAttached: [`${newClassSubject}_Key_Formulas_2016.pdf`],
+      hasRecording: false,
+      materialsAttached: [],
       youtubeId: extractedYoutubeId,
+      videoUrl: uploadedVideoUrl,
     };
 
     if (onAddLiveClass) {
       onAddLiveClass(createdClass);
     }
     onSelectClass(createdClass.id);
+    setRoomLessonVideoUrl(uploadedVideoUrl || null);
+    setRoomLessonYoutubeId(extractedYoutubeId || null);
     setShowStartModal(false);
     setNewClassTitle('');
     setNewClassTopic('');
     setNewClassYoutube('');
-    setActiveTab('live_room');
-    setIsTeaching(true);
-    setStageMode(extractedYoutubeId ? 'video' : 'split');
-    handleToggleCamera(true);
-    triggerToast(`Live class "${createdClass.title}" is now broadcasting live with webcam!`);
+    setNewClassVideoFile(null);
+    setNewClassVideoPreviewUrl(null);
+
+    if (startAsLive) {
+      setActiveTab('live_room');
+      setIsTeaching(true);
+      const hasPreloadedVideo = Boolean(uploadedVideoUrl || extractedYoutubeId);
+      setStageMode(hasPreloadedVideo ? 'video' : 'split');
+      if (!hasPreloadedVideo) {
+        handleToggleCamera(true);
+      }
+      triggerToast(isAm ? `የቀጥታ ስርጭት ተጀምሯል: "${createdClass.title}"` : `Live class "${createdClass.title}" is now broadcasting live!`);
+    } else {
+      triggerToast(isAm ? `የክፍለ-ጊዜ መርሃ-ግብር ተመዝግቧል: "${createdClass.title}"` : `Class scheduled: "${createdClass.title}"`);
+    }
   };
 
   const activeVideoTrack = userStream?.getVideoTracks()[0];
   const activeCameraLabel = activeVideoTrack?.label || '';
   const isIriunActive = camActive && !!userStream && activeCameraLabel.toLowerCase().includes('iriun');
+
+  const isTeacherInClass = Boolean(
+    selectedClass.isLiveNow ||
+    liveBroadcasterInfo?.teacherName ||
+    (activeServerBroadcast && (activeServerBroadcast.roomId === `room-${selectedClass.id}` || activeServerBroadcast.roomId === selectedClass.id)) ||
+    isBroadcastingLive
+  );
+
+  const studentWaitingAdmittedRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (!isAuthorizedTeacher && activeTab === 'live_room') {
+      if (!isTeacherInClass) {
+        studentWaitingAdmittedRef.current = true;
+      } else if (studentWaitingAdmittedRef.current) {
+        studentWaitingAdmittedRef.current = false;
+        triggerToast(
+          isAm
+            ? '🎉 መምህሩ ገብተው የቀጥታ ስርጭቱን ጀምረዋል! እንኳን ደህና መጡ!'
+            : '🎉 Instructor has entered and started broadcasting! You are now in the live classroom!'
+        );
+      }
+    }
+  }, [isAuthorizedTeacher, activeTab, isTeacherInClass, isAm]);
 
   return (
     <div className="space-y-6 pb-12">
@@ -3632,6 +4215,16 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         id="teacher-ppt-slides-input"
       />
 
+      {/* Hidden file input for chat attachments (screenshots, notes, homework questions) */}
+      <input
+        type="file"
+        ref={chatAttachmentInputRef}
+        onChange={handleChatAttachmentUpload}
+        accept="image/*,.pdf,.doc,.docx"
+        className="hidden"
+        id="live-chat-attachment-input"
+      />
+
       {/* Floating In-app Toast Banner */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-xl border border-emerald-500/50 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-2">
@@ -3640,297 +4233,702 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         </div>
       )}
 
-      {/* Global Active Broadcast Discovery Banner: Appears whenever any teacher is broadcasting live */}
-      {activeServerBroadcast && activeServerBroadcast.roomId !== `room-${selectedClass.id}` && (
-        <div className="bg-linear-to-r from-red-600 via-rose-600 to-red-700 text-white p-4 rounded-2xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-pulse border border-red-300/40">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-              <Radio className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="font-black text-sm sm:text-base flex items-center gap-2">
-                <span>🔴 የቀጥታ ስርጭት በመካሄድ ላይ ነው!</span>
-                <span className="text-[10px] bg-white text-red-700 px-2 py-0.5 rounded-full font-black uppercase">LIVE NOW</span>
+      {/* Global Active Broadcast Discovery Banner: Appears whenever teacher is broadcasting live for this grade */}
+      {(() => {
+        if (!activeServerBroadcast || activeServerBroadcast.roomId === `room-${selectedClass.id}`) {
+          return null;
+        }
+        const targetClassId = activeServerBroadcast.roomId.replace(/^room-/, '');
+        const targetClass = liveClasses.find((c) => c.id === targetClassId);
+        const studentGrade = currentUser?.gradeLevel || selectedLevel;
+        const isGradeMatch = isAuthorizedTeacher || !targetClass || targetClass.level === studentGrade;
+        if (!isGradeMatch) return null;
+
+        return (
+          <div className="bg-linear-to-r from-red-600 via-rose-600 to-red-700 text-white p-4 rounded-2xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-pulse border border-red-300/40">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                <Radio className="w-5 h-5 text-white" />
               </div>
-              <p className="text-xs text-white/95 mt-0.5">
-                መምህር <strong>{activeServerBroadcast.teacherName}</strong> በ <strong>{activeServerBroadcast.subject || 'National Exam Prep'}</strong> ({activeServerBroadcast.topic || 'Live Session'}) የቀጥታ ትምህርት እያስተላለፉ ነው።
+              <div>
+                <div className="font-black text-sm sm:text-base flex items-center gap-2">
+                  <span>{isAm ? '🔴 የቀጥታ ስርጭት በመካሄድ ላይ ነው!' : '🔴 Live Broadcast In Progress!'}</span>
+                  <span className="text-[10px] bg-white text-red-700 px-2 py-0.5 rounded-full font-black uppercase">LIVE NOW</span>
+                </div>
+                <p className="text-xs text-white/95 mt-0.5">
+                  {isAm ? (
+                    <>መምህር <strong>{activeServerBroadcast.teacherName}</strong> በ <strong>{activeServerBroadcast.subject || 'National Exam Prep'}</strong> ({activeServerBroadcast.topic || 'Live Session'}) የቀጥታ ትምህርት እያስተላለፉ ነው።</>
+                  ) : (
+                    <>Instructor <strong>{activeServerBroadcast.teacherName}</strong> is broadcasting live on <strong>{activeServerBroadcast.subject || 'National Exam Prep'}</strong> ({activeServerBroadcast.topic || 'Live Session'}).</>
+                  )}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onSelectClass(targetClassId);
+                setActiveTab('live_room');
+              }}
+              className="px-4 py-2 rounded-xl bg-white text-red-700 hover:bg-red-50 text-xs font-black shadow-md shrink-0 cursor-pointer transition active:scale-95 flex items-center gap-1.5 justify-center"
+            >
+              <Radio className="w-3.5 h-3.5 text-red-600" />
+              <span>{isAm ? 'ወደ ቀጥታ ስርጭቱ ግባ' : 'Join Live Class'}</span>
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* Top Header & Mode Tabs (Visible on Recordings/Catalog) */}
+      {activeTab === 'recordings' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+                <span className="text-xs font-bold uppercase tracking-wider text-red-600 flex items-center gap-1.5">
+                  <Radio className="w-3.5 h-3.5" />
+                  {currentLang === 'am' ? 'የቀጥታ ትምህርት' : 'Live Interactive Classroom'}
+                </span>
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+                {currentLang === 'am' ? 'የቀጥታ ክፍሎችና የታቀዱ መርሃ-ግብሮች' : 'Live Classes & Schedules'}
+              </h2>
+              <p className="text-xs text-slate-600 mt-0.5">
+                {currentLang === 'am' 
+                  ? 'የቀጥታ ክፍለ-ጊዜዎችን ይከታተሉ፣ ከተማሪዎች ጋር ይወያዩ ወይም ያለፉ ትምህርቶችን ይመልከቱ።'
+                  : 'Real-time interactive lectures, digital whiteboard, live Q&A with Ethiopian teachers & MoE exam reviews.'}
               </p>
             </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Live Now / Scheduled / Recorded Switcher & Filter */}
+              <div className="flex items-center p-1 rounded-xl bg-white border border-slate-200 shadow-2xs">
+                <button
+                  onClick={() => {
+                    setActiveTab('recordings');
+                    setStreamStatusFilter('all');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'recordings' && streamStatusFilter === 'all'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>{currentLang === 'am' ? `ሁሉም (${visibleLiveClasses.length})` : `All (${visibleLiveClasses.length})`}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('recordings');
+                    setStreamStatusFilter('live');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'recordings' && streamStatusFilter === 'live'
+                      ? 'bg-red-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-red-400 animate-ping"></span>
+                  <span>{currentLang === 'am' ? `ቀጥታ (${visibleLiveClasses.filter(c => c.isLiveNow).length})` : `Live Now (${visibleLiveClasses.filter(c => c.isLiveNow).length})`}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('recordings');
+                    setStreamStatusFilter('scheduled');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'recordings' && streamStatusFilter === 'scheduled'
+                      ? 'bg-slate-800 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{currentLang === 'am' ? `መርሃ-ግብር (${visibleLiveClasses.filter(c => !c.isLiveNow).length})` : `Scheduled (${visibleLiveClasses.filter(c => !c.isLiveNow).length})`}</span>
+                </button>
+                <button
+                  onClick={() => setStreamStatusFilter('recordings')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    streamStatusFilter === 'recordings' ? 'bg-purple-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>{currentLang === 'am' ? `የተቀዱ (${visibleLiveClasses.filter(c => c.hasRecording).length})` : `Recordings (${visibleLiveClasses.filter(c => c.hasRecording).length})`}</span>
+                </button>
+              </div>
+
+              {/* Teacher & Admin Only: Schedule / Start Live Class Button */}
+              {isAuthorizedTeacher && (
+                <button
+                  onClick={() => setShowStartModal(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
+                  id="btn-teacher-start-class"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>{currentLang === 'am' ? '+ አዲስ የቀጥታ ክፍለ-ጊዜ' : '+ Schedule / Start Live Class'}</span>
+                </button>
+              )}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              const targetClassId = activeServerBroadcast.roomId.replace(/^room-/, '');
-              onSelectClass(targetClassId);
-              setActiveTab('live_room');
-            }}
-            className="px-4 py-2 rounded-xl bg-white text-red-700 hover:bg-red-50 text-xs font-black shadow-md shrink-0 cursor-pointer transition active:scale-95 flex items-center gap-1.5 justify-center"
-          >
-            <Radio className="w-3.5 h-3.5 text-red-600" />
-            <span>ወደ ቀጥታ ስርጭቱ ግባ (Join Live Class)</span>
-          </button>
+
+          {/* Newly Recorded Teacher Sessions */}
+          {recordedSessionsList.length > 0 && (
+            <div className="p-5 rounded-2xl bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 border border-rose-200 shadow-xs mb-4">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-rose-600 animate-pulse"></span>
+                  <h4 className="text-sm font-black text-slate-900">
+                    {isAm ? 'የቀረጹዋቸው የቀጥታ ትምህርቶች' : 'Your Live Recorded Classes'}
+                  </h4>
+                </div>
+                <span className="text-xs font-bold text-rose-700 bg-rose-100 border border-rose-200 px-3 py-0.5 rounded-full">
+                  {recordedSessionsList.length} {isAm ? 'ቀረጻዎች ተቀምጠዋል' : 'recordings saved'}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {recordedSessionsList.map((rec) => (
+                  <div key={rec.id} className="p-3.5 bg-white rounded-xl border border-rose-200/80 shadow-xs flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-slate-900 truncate">{rec.title}</div>
+                      <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2 mt-1">
+                        <span className="px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 font-sans font-bold text-[10px]">
+                          {rec.subject}
+                        </span>
+                        <span className="flex items-center gap-1 font-semibold">
+                          <Clock className="w-3 h-3 text-rose-500" />
+                          {rec.duration}
+                        </span>
+                        <span>•</span>
+                        <span>{rec.date}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                      {onNavigateToVideos && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onNavigateToVideos('My Videos', `vid-${rec.id}`);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                          title={isAm ? 'በቪዲዮዎች ዝርዝር ውስጥ ተመልከት' : 'View in My Videos'}
+                        >
+                          <Film className="w-3.5 h-3.5 text-sky-600" />
+                          <span>{isAm ? 'በቪዲዮዎች እይ' : 'View in Videos'}</span>
+                        </button>
+                      )}
+                      <a
+                        href={rec.url}
+                        download={`Live-Session-${rec.id}.webm`}
+                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-xs"
+                        title={isAm ? 'ቪዲዮውን አውርድ' : 'Download Video'}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">{isAm ? 'አውርድ' : 'Download'}</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteRecordedSession(rec.id, e)}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                        title={isAm ? 'ይህን ቀረጻ አጥፋ' : 'Delete Recording'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                        <span className="hidden sm:inline">{isAm ? 'አጥፋ' : 'Delete'}</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Available Live Stream Selection Cards */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700 px-1">
+              <div className="flex items-center gap-2">
+                <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
+                <span>
+                  {currentLang === 'am'
+                    ? (currentUser?.role === 'student'
+                        ? `ለእርስዎ ክፍል (${effectiveStudentLevel.replace(/_/g, ' ').toUpperCase()}) የተዘጋጁ የቀጥታ ክፍለ-ጊዜዎች`
+                        : 'በኢትዮጵያ የሚገኙ የቀጥታ ክፍለ-ጊዜዎች')
+                    : (currentUser?.role === 'student'
+                        ? `Live Sessions for Your Level (${effectiveStudentLevel.replace(/_/g, ' ').toUpperCase()})`
+                        : 'Available Live Sessions & Classrooms across Ethiopia')}
+                </span>
+                {streamStatusFilter !== 'all' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold">
+                    {currentLang === 'am' 
+                      ? (streamStatusFilter === 'live' ? 'ቀጥታ ስርጭት ብቻ' : streamStatusFilter === 'recordings' ? 'የተቀዱ ብቻ' : 'የታቀዱ ብቻ') 
+                      : (streamStatusFilter === 'live' ? 'Live Only' : streamStatusFilter === 'recordings' ? 'Recordings Only' : 'Scheduled Only')}
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] text-slate-500 font-normal hidden sm:inline">
+                {currentLang === 'am' ? 'ክፍል ለመቀላቀል ማንኛውንም ይጫኑ' : 'Click any session to enter room'}
+              </span>
+            </div>
+
+            {(() => {
+              const filteredStreams = visibleLiveClasses.filter((cls) => {
+                if (streamStatusFilter === 'live') return cls.isLiveNow;
+                if (streamStatusFilter === 'scheduled') return !cls.isLiveNow;
+                if (streamStatusFilter === 'recordings') return cls.hasRecording;
+                return true;
+              });
+
+              if (filteredStreams.length === 0) {
+                return (
+                  <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                    <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                      <Radio className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-900">{currentLang === 'am' ? 'ምንም ክፍለ-ጊዜ አልተገኘም' : 'No sessions match the current filter'}</h4>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto">
+                      {currentLang === 'am'
+                        ? 'በተመረጠው መስፈርት የተገኘ ክፍለ-ጊዜ የለም። ሁሉንም ክፍሎች መመልከት ይችላሉ።'
+                        : 'There are no broadcasts matching this filter right now. You can view all available sessions.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setStreamStatusFilter('all')}
+                      className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                    >
+                      {currentLang === 'am' ? 'ሁሉንም ክፍሎች አሳይ' : 'Show All Sessions'}
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  {filteredStreams.map((cls) => {
+                    const isSelected = cls.id === selectedClass.id;
+                    const hasAssignedTeacher = cls.teacherName && !cls.teacherName.includes('መምህር አልተመደበም') && !cls.teacherName.toLowerCase().includes('no teacher') && !cls.teacherName.toLowerCase().includes('pending');
+                    return (
+                      <div
+                        key={cls.id}
+                        onClick={() => {
+                          onSelectClass(cls.id);
+                          setActiveTab('live_room');
+                          setCurrentSlideIndex(0);
+                          if (cls.youtubeId || cls.videoUrl) {
+                            setStageMode('video');
+                          } else {
+                            setStageMode('slides');
+                          }
+                        }}
+                        className={`p-3.5 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-3 text-left ${
+                          isSelected
+                            ? 'bg-emerald-50/70 border-emerald-500 shadow-xs ring-1 ring-emerald-500/40'
+                            : 'bg-white hover:bg-slate-50 border-slate-200 shadow-2xs'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <span className="text-[11px] font-bold text-emerald-800">
+                              {cls.subject} · {cls.level.replace(/_/g, ' ').toUpperCase()}
+                            </span>
+                            {cls.isLiveNow ? (
+                              <span className="flex items-center gap-1 text-[10px] font-black uppercase text-red-700 bg-red-100 px-2 py-0.5 rounded-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />
+                                {currentLang === 'am' ? 'ቀጥታ' : 'Live'}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                {currentLang === 'am' ? 'የታቀደ' : 'Scheduled'}
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="font-bold text-xs text-slate-900 leading-snug line-clamp-2">
+                            {cls.title}
+                          </h4>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-600">
+                          <div className="flex items-center gap-1.5 truncate mr-2">
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                              hasAssignedTeacher ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              {hasAssignedTeacher ? cls.teacherName.charAt(0) : '⚪'}
+                            </span>
+                            <span className={`truncate text-[11px] ${hasAssignedTeacher ? 'font-bold text-slate-800' : 'text-slate-400 font-medium'}`}>
+                              {hasAssignedTeacher ? cls.teacherName : (currentLang === 'am' ? 'መምህር አልተመደበም' : 'No teacher assigned')}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0 font-mono text-slate-500 text-[10px]">
+                            <Users className="w-3 h-3 text-slate-400" />
+                            <span>{cls.currentViewers}</span>
+                          </div>
+                        </div>
+
+                        {isSelected ? (
+                          <div className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 py-1.5 px-2 rounded-xl text-center">
+                            {cls.isLiveNow
+                              ? (currentLang === 'am' ? '✓ አሁን በቀጥታ ክፍል ውስጥ' : '✓ In Live Classroom')
+                              : (isAuthorizedTeacher
+                                  ? (currentLang === 'am' ? '✓ አሁን የተመረጠ' : '✓ Currently Selected')
+                                  : (currentLang === 'am' ? '⏳ በመጠባበቂያ ክፍል ውስጥ' : '⏳ In Waiting Room'))}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 bg-slate-100 hover:bg-emerald-50 py-1.5 px-2 rounded-xl text-center transition">
+                            {cls.isLiveNow
+                              ? (currentLang === 'am' ? 'ወደ ክፍል ግባ →' : 'Join Live Class →')
+                              : (isAuthorizedTeacher
+                                  ? (currentLang === 'am' ? 'ክፍሉን ጀምር / አስተምር →' : 'Start Session / Teach →')
+                                  : (currentLang === 'am' ? 'መጠባበቂያ ክፍል ግባ (መምህር ይጠበቃል) ⏳' : 'Enter Waiting Room ⏳'))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
 
-      {/* Top Header & Mode Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
-            <span className="text-xs font-bold uppercase tracking-wider text-red-600 flex items-center gap-1.5">
-              <Radio className="w-3.5 h-3.5" />
-              Live Interactive Learning (የቀጥታ ትምህርት)
-            </span>
-          </div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-            Ethiopian National Live Classroom
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Real-time interactive lectures, digital whiteboard, live Q&A with teachers & AI study copilot.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center p-1 rounded-xl bg-white border border-slate-200 shadow-2xs">
-            <button
-              onClick={() => setActiveTab('live_room')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'live_room' ? 'bg-red-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
-              <span>Active Classroom</span>
-            </button>
-            <button
-              onClick={() => {
-                if (camActive || userStream || isBroadcastingLive) {
-                  shutdownAllLiveStreams();
-                }
-                setActiveTab('recordings');
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'recordings' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              <span>Recordings ({liveClasses.filter(c => c.hasRecording).length})</span>
-            </button>
-          </div>
-
-          <button
-            onClick={() => setShowStartModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
-            id="btn-teacher-start-class"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>Teacher: Start Class</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Quick Live Class Switcher Bar (Subjects & Sessions across Ethiopia) */}
-      <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-2 overflow-x-auto scrollbar-none">
-        <span className="text-[11px] font-bold uppercase text-slate-400 shrink-0 px-2 flex items-center gap-1">
-          <Layers className="w-3.5 h-3.5" />
-          Live Streams:
-        </span>
-        {liveClasses.map((cls) => {
-          const isSelected = cls.id === selectedClass.id;
-          return (
-            <button
-              key={cls.id}
-              onClick={() => {
-                onSelectClass(cls.id);
-                setActiveTab('live_room');
-                setCurrentSlideIndex(0);
-                if (cls.youtubeId) {
-                  setStageMode('video');
-                } else {
-                  setStageMode('slides');
-                }
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition flex items-center gap-2 cursor-pointer border ${
-                isSelected
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              {cls.isLiveNow && (
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0"></span>
-              )}
-              <span className="truncate max-w-[170px]">{cls.subject}: {cls.title}</span>
-              <span className="text-[10px] opacity-70 font-mono">
-                {cls.currentViewers} 👥
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* VIEW 1: ACTIVE LIVE CLASSROOM */}
+      {/* VIEW 1: ACTIVE LIVE CLASSROOM OR STUDENT WAITING LOBBY */}
       {activeTab === 'live_room' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Stage: Video / Digital Whiteboard / Screen Share / Slides */}
-          <div className="lg:col-span-2 space-y-4">
-            
-            {/* Teacher Online Broadcast Banner (Helps instructor manage their live face and board) */}
-            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white p-3.5 rounded-2xl border border-emerald-500/30 shadow-xs flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 font-bold text-lg shrink-0">
-                  👨‍🏫
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-black text-xs sm:text-sm text-white">Teacher Live Broadcast Console (የመምህሩ የቀጥታ መቆጣጠሪያ)</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                      camActive 
-                        ? 'bg-emerald-500 text-slate-950 animate-pulse' 
-                        : 'bg-amber-400 text-slate-950'
-                    }`}>
-                      {camActive ? (userStream ? '🔴 Webcam Live' : '🟢 Face Photo Live') : 'Face Off'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-emerald-200/80 mt-0.5">
-                    {camActive 
-                      ? (userStream 
-                          ? '🔴 የእርስዎ ፊት በካሜራ በቀጥታ እየታየ ነው። (Your webcam face is broadcasting live to students).' 
-                          : '🟢 የእርስዎ ፎቶ በቀጥታ ስርጭት ላይ እየታየ ነው። (Your face photo is active and broadcasting live).')
-                      : '⚠️ ፊትዎ ለተማሪዎች እንዲታይ ካሜራዎን ያብሩ ወይም ፎቶዎን ይጫኑ (Click "Turn On Webcam" or "Upload Face Photo").'}
-                  </p>
-                </div>
-              </div>
+        !isAuthorizedTeacher && !isTeacherInClass ? (
+          /* Dedicated Waiting Lobby for Students when Teacher has not entered */
+          <div className="space-y-6">
+            {/* Waiting Room Top Nav Bar */}
+            <div className="flex items-center justify-between bg-white border border-slate-200 p-3 rounded-2xl shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setActiveTab('recordings')}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>{isAm ? '← ወደ ክፍሎች መርሃ-ግብር ተመለስ' : '← Back to Live Classes'}</span>
+              </button>
 
               <div className="flex items-center gap-2 flex-wrap">
-                {/* 1. Webcam button */}
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <span className="text-xs font-bold text-slate-900 truncate max-w-xs sm:max-w-md">
+                  {selectedClass.title}
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                  {selectedClass.subject}
+                </span>
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-amber-600" />
+                  <span>{isAm ? 'መምህር በመጠባበቅ ላይ' : 'Awaiting Instructor'}</span>
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => {
-                    handleToggleCamera();
-                    if (!camActive && (stageMode === 'slides' || stageMode === 'video')) {
-                      setStageMode('split');
-                    }
-                  }}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
-                    camActive && userStream
-                      ? 'bg-emerald-600 text-white font-black'
-                      : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black'
-                  }`}
-                  id="btn-turn-on-face-cam"
-                  title="Turn on physical webcam"
+                  type="button"
+                  onClick={() => setShowAttendeesModal(true)}
+                  className="text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                  title={isAm ? 'ተሳታፊዎች' : 'Attendees'}
                 >
-                  <Video className="w-4 h-4" />
-                  <span>{camActive && userStream ? 'Webcam Active (በርቷል)' : 'Turn On Webcam (ካሜራ)'}</span>
+                  <Users className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{onlineParticipants.length} {isAm ? 'ተማሪዎች' : 'Waiting'}</span>
                 </button>
-
-                {/* 2. Upload photo button */}
-                <button
-                  onClick={() => photoInputRef.current?.click()}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
-                    camActive && teacherPhoto && !userStream
-                      ? 'bg-emerald-700 text-white border-emerald-500'
-                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                  }`}
-                  title="Upload face photo to show your face"
-                >
-                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{teacherPhoto ? 'Change Photo (ፎቶ)' : 'Upload Face (ፎቶ)'}</span>
-                </button>
-
-                {/* 3. Open in new tab (for full browser camera permissions) */}
-                <button
-                  onClick={handleOpenNewTab}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer border border-slate-700"
-                  title="Open app in a new tab for native camera access (በአዲስ ታብ ክፈት)"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </button>
-
-                {/* 4. Stage layout & camera buttons */}
-                <div className="flex items-center gap-1 border-l border-slate-700/80 pl-2">
-                  <button
-                    onClick={() => {
-                      setStageMode('camera');
-                      if (cameraFacing !== 'user' || !camActive) {
-                        startCameraWithFacing('user');
-                      }
-                    }}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                      stageMode === 'camera' && cameraFacing === 'user'
-                        ? 'bg-emerald-600 text-white font-black ring-1 ring-emerald-300'
-                        : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-                    }`}
-                    title="የፊት ለፊት ካሜራን በሙሉ ስክሪን አሳይ (Full Screen Front Face Camera)"
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    <span>🤳 ፊት ካሜራ (Front)</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (cameraFacing !== 'environment' || !camActive) {
-                        startCameraWithFacing('environment');
-                      } else {
-                        setStageMode('camera');
-                      }
-                    }}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                      cameraFacing === 'environment' && camActive
-                        ? 'bg-sky-600 text-white font-black ring-1 ring-sky-300'
-                        : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-                    }`}
-                    title="የጀርባ ካሜራን አሳይ (Switch to Back Camera)"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>📷 ጀርባ (Back)</span>
-                  </button>
-                  <button
-                    onClick={() => setStageMode('split')}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                      stageMode === 'split' ? 'bg-emerald-600 text-white font-black' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-                    }`}
-                    title="Split screen: Teacher face + Whiteboard"
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>ፊት + ሰሌዳ</span>
-                  </button>
-                  {userStream && (
-                    <button
-                      onClick={handleFlipCamera}
-                      className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
-                      title="Flip camera (front / back)"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-
-                  {/* Exit / Leave Live Class Button */}
-                  <button
-                    type="button"
-                    onClick={handleExitClass}
-                    className="px-2.5 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-500/60 text-rose-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs ml-1"
-                    title="ከክፍሉ ውጣና ካሜራ/ማይክሮፎኑን አጥፋ (Exit live class & turn off camera/mic)"
-                  >
-                    <PhoneOff className="w-3.5 h-3.5 text-rose-400" />
-                    <span>ከክፍል ውጣ</span>
-                  </button>
-                </div>
               </div>
             </div>
 
-            <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-xs flex flex-col">
-              
-              {/* Broadcast Header Bar with Stage Mode Switchers */}
-              <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between text-xs text-white flex-wrap gap-2">
-                <div className="flex items-center gap-2.5">
-                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
-                    Live Now
-                  </span>
-                  <span className="font-bold text-white truncate max-w-xs sm:max-w-md">
-                    {selectedClass.title}
-                  </span>
-                </div>
+            {/* Centered Waiting Room Content */}
+            <div className="relative rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-12 text-white shadow-2xl overflow-hidden max-w-3xl mx-auto text-center space-y-6">
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-48 bg-amber-500/10 blur-3xl pointer-events-none rounded-full"></div>
 
-                {/* Stage View Switcher Tabs: My Face / Camera | Split: Face + Board | Split: Face + PPT | Whiteboard | Slides | Recorded Video | Screen Share */}
+              {/* Pulsing Radar Beacon */}
+              <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full bg-amber-500/20 animate-ping"></div>
+                <div className="absolute inset-3 rounded-full bg-amber-500/30 animate-pulse"></div>
+                <div className="relative w-14 h-14 rounded-2xl bg-linear-to-tr from-amber-500 to-amber-400 text-slate-950 flex items-center justify-center shadow-lg font-black">
+                  <Radio className="w-7 h-7 text-slate-950 animate-pulse" />
+                </div>
+              </div>
+
+              {/* Status Header */}
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold uppercase tracking-wider">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                  <span>{isAm ? 'የተማሪዎች መጠባበቂያ ክፍል' : 'Student Waiting Lobby'}</span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                  {isAm ? 'መምህሩ ክፍለ-ጊዜውን እስኪጀምሩ ድረስ በመጠባበቅ ላይ...' : 'Waiting for Instructor to Start Broadcasting...'}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto leading-relaxed">
+                  {isAm
+                    ? 'ይህ የቀጥታ ክፍለ-ጊዜ እስካሁን በመምህሩ አልተጀመረም። መምህሩ ገብተው የቀጥታ ስርጭቱን ሲጀምሩ ይህ ገጽ ወዲያውኑ ወደ ቀጥታ ማስተማሪያ ክፍሉ በቀጥታ ያስገባዎታል።'
+                    : 'The instructor has not entered the classroom yet. As soon as the teacher connects and begins broadcasting, you will be automatically admitted into the live lecture room.'}
+                </p>
+              </div>
+
+              {/* Class Summary Box */}
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 sm:p-5 text-left grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                    {isAm ? 'የትምህርት አይነትና ደረጃ' : 'Subject & Curriculum Level'}
+                  </span>
+                  <div className="font-bold text-white text-sm">
+                    {selectedClass.subject} · {selectedClass.level.replace(/_/g, ' ').toUpperCase()}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                    {isAm ? 'የክፍለ-ጊዜው ርዕስ' : 'Lecture Topic'}
+                  </span>
+                  <div className="font-bold text-emerald-400 text-sm truncate">
+                    {selectedClass.currentTopic || selectedClass.title}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                    {isAm ? 'የታቀደበት ሰዓት' : 'Scheduled Time'}
+                  </span>
+                  <div className="font-bold text-slate-200">
+                    {selectedClass.scheduledTime}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                    {isAm ? 'የተመደበው መምህር' : 'Assigned Instructor'}
+                  </span>
+                  <div className="font-bold text-slate-200">
+                    {selectedClass.teacherName || (isAm ? 'መምህር በቅርቡ ይመደባል' : 'Pending Instructor Assignment')}
+                  </div>
+                </div>
+              </div>
+
+              {/* Scanner beacon status */}
+              <div className="flex items-center justify-center gap-2 text-xs text-emerald-400 font-mono">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>{isAm ? 'የመምህሩን መግባት በየሰከንዱ በራስ-ሰር በመፈተሽ ላይ...' : 'Auto-checking instructor presence in real-time...'}</span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('recordings')}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 border border-slate-700"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  <span>{isAm ? 'ወደ ክፍሎች መርሃ-ግብር ተመለስ' : 'Browse Other Sessions'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerToast(
+                      isAm
+                        ? 'የመምህሩ ሁኔታ ተፈትሿል፤ መምህሩ ገና አልገቡም። በመጠባበቅ ላይ ኖት።'
+                        : 'Status rechecked: Instructor has not started yet. You will be auto-admitted.'
+                    );
+                  }}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-lg"
+                >
+                  <Radio className="w-4 h-4" />
+                  <span>{isAm ? 'ሁኔታውን አሁን ፈትሽ' : 'Check Instructor Status'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Room Top Navigation & Status Bar */}
+            <div className="flex items-center justify-between bg-white border border-slate-200 p-3 rounded-2xl shadow-2xs">
+              <button
+                type="button"
+                onClick={() => {
+                  if (camActive || userStream || isBroadcastingLive) {
+                    shutdownAllLiveStreams();
+                  }
+                  setActiveTab('recordings');
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>{isAm ? '← ወደ ክፍሎች መርሃ-ግብር ተመለስ' : '← Back to Live Classes'}</span>
+              </button>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                  isBroadcastingLive ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 border border-red-200'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isBroadcastingLive ? 'bg-white animate-ping' : 'bg-red-500 animate-pulse'}`}></span>
+                  <span>{isBroadcastingLive ? 'LIVE' : 'Live'}</span>
+                </span>
+                <span className="text-xs font-bold text-slate-900 truncate max-w-xs sm:max-w-md">
+                  {selectedClass.title}
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                  {selectedClass.subject}
+                </span>
+                {liveBroadcasterInfo?.teacherName && (
+                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">
+                    {liveBroadcasterInfo.teacherName}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAttendeesModal(true)}
+                  className="text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                  title={isAm ? 'ተሳታፊዎች' : 'Attendees'}
+                >
+                  <Users className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{onlineParticipants.length} {isAm ? 'ተሳታፊዎች' : 'Online'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Mobile View Switcher Tab (Classroom vs Live Chat vs Q&A) */}
+            <div className="flex lg:hidden items-center p-1 bg-slate-200/80 rounded-2xl gap-1">
+              <button
+                type="button"
+                onClick={() => setMobileClassroomTab('stage')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileClassroomTab === 'stage' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Video className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Classroom</span>
+              </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileClassroomTab('chat');
+                setActiveChatTab('chat');
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                mobileClassroomTab === 'chat' && activeChatTab === 'chat'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Chat ({chatMessages.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileClassroomTab('chat');
+                setActiveChatTab('qa');
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                mobileClassroomTab === 'chat' && (activeChatTab === 'qa' || activeChatTab === 'pending')
+                  ? 'bg-white text-emerald-900 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-amber-600" />
+              <span>Q&amp;A ({chatMessages.filter((m) => m.isQuestion).length})</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Main Stage: Video / Digital Whiteboard / Screen Share / Slides */}
+            <div className={`lg:col-span-2 space-y-4 ${mobileClassroomTab === 'stage' ? 'block' : 'hidden lg:block'}`}>
+
+              {/* Hardware & Permission Diagnostics Banner (shown for mic or when not already inside Camera stage) */}
+              {(micPermissionError || (cameraError && stageMode !== 'camera' && stageMode !== 'split' && stageMode !== 'split_ppt')) && (
+                <div className="bg-amber-50 border border-amber-300 text-amber-950 px-4 py-3 rounded-2xl text-xs flex items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <div>
+                      <span className="font-bold">Hardware Permission Notice: </span>
+                      <span>{cameraError || micPermissionError}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        if (cameraError) handleToggleCamera();
+                        if (micPermissionError) handleToggleMic();
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] transition cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                    <button
+                      onClick={() => {
+                        setCameraError(null);
+                        setMicPermissionError(null);
+                      }}
+                      className="text-amber-800 hover:text-amber-950 font-bold px-2 py-1 rounded text-[11px] cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            <div ref={classroomStageRef} className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-xs flex flex-col">
+              
+              {/* Stage View Switcher Header Bar */}
+              <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center justify-between text-xs text-white gap-2">
                 <div className="flex items-center gap-1 p-1 bg-slate-800/80 rounded-xl border border-slate-700 text-[11px] overflow-x-auto max-w-full">
+                  <button
+                    onClick={() => setStageMode('slides')}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                      stageMode === 'slides' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
+                    }`}
+                    title={isAm ? 'የክፍል ስላይዶች' : 'Slide Presentation'}
+                  >
+                    <Presentation className="w-3.5 h-3.5" />
+                    <span>{isAm ? 'ስላይዶች' : 'Slides'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setStageMode('whiteboard')}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                      stageMode === 'whiteboard' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
+                    }`}
+                    title={isAm ? 'ዲጂታል ሰሌዳ' : 'Interactive Whiteboard'}
+                  >
+                    <PenTool className="w-3.5 h-3.5" />
+                    <span>{isAm ? 'ሰሌዳ' : 'Whiteboard'}</span>
+                  </button>
+
+                  {(isAuthorizedTeacher || roomLessonYoutubeId || roomLessonVideoUrl || selectedClass.youtubeId || selectedClass.videoUrl || stageMode === 'video') && (
+                    <button
+                      onClick={() => setStageMode('video')}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                        stageMode === 'video' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
+                      }`}
+                      title={isAm ? 'የተቀረጸ ወይም የተጫነ ቪዲዮ በማጫወት ያስረዱ' : 'Play uploaded or recorded lecture video'}
+                    >
+                      <Video className="w-3.5 h-3.5 text-amber-300" />
+                      <span>{isAm ? 'ቪዲዮ' : 'Video'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setStageMode('split');
+                      if (!camActive) handleToggleCamera(true, true);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                      stageMode === 'split' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
+                    }`}
+                    title={isAm ? 'ፊትና ሰሌዳ ጎን ለጎን' : 'Side-by-side: Face and Board'}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>{isAm ? 'ፊት + ሰሌዳ' : 'Face + Board'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setStageMode('split_ppt');
+                      if (!camActive) handleToggleCamera(true, true);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                      stageMode === 'split_ppt' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
+                    }`}
+                    title={isAm ? 'ፊትና PPT ስላይድ ጎን ለጎን' : 'Side-by-side: Face and Slides'}
+                  >
+                    <Presentation className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{isAm ? 'ፊት + PPT' : 'Face + PPT'}</span>
+                  </button>
+
                   <button
                     onClick={() => {
                       setStageMode('camera');
@@ -3939,69 +4937,12 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                     className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
                       stageMode === 'camera' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
                     }`}
-                    title="Open your webcam or live face photo"
+                    title="Open webcam or face view"
                   >
                     <Camera className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>👤 የእኔ ፊት (Face)</span>
+                    <span>{isAm ? 'ካሜራ' : 'Camera'}</span>
                   </button>
-                  <button
-                    onClick={() => {
-                      setStageMode('split');
-                      if (!camActive) handleToggleCamera(true);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
-                      stageMode === 'split' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
-                    }`}
-                    title="Side-by-side: Teacher video and interactive blackboard"
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>👥 ፊት + ሰሌዳ</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setStageMode('split_ppt');
-                      if (!camActive) handleToggleCamera(true);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
-                      stageMode === 'split_ppt' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
-                    }`}
-                    title="Side-by-side: Teacher video and PowerPoint slides"
-                  >
-                    <Presentation className="w-3.5 h-3.5 text-amber-400" />
-                    <span>👥 ፊት + PPT</span>
-                  </button>
-                  <button
-                    onClick={() => setStageMode('slides')}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
-                      stageMode === 'slides' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
-                    }`}
-                    title="Full PowerPoint slide presentation"
-                  >
-                    <Presentation className="w-3.5 h-3.5" />
-                    <span>📊 PPT ስላይድ</span>
-                  </button>
-                  <button
-                    onClick={() => setStageMode('whiteboard')}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
-                      stageMode === 'whiteboard' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
-                    }`}
-                    title="Full interactive blackboard"
-                  >
-                    <PenTool className="w-3.5 h-3.5" />
-                    <span>✏️ ሰሌዳ (Board)</span>
-                  </button>
-                  {selectedClass.youtubeId && (
-                    <button
-                      onClick={() => setStageMode('video')}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
-                        stageMode === 'video' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'
-                      }`}
-                      title="Watch the recorded teacher lecture video"
-                    >
-                      <Video className="w-3.5 h-3.5 text-amber-300" />
-                      <span className="hidden sm:inline">📺 የትምህርት ቪዲዮ</span>
-                    </button>
-                  )}
+
                   {isScreenSharing && (
                     <button
                       onClick={() => setStageMode('screenshare')}
@@ -4010,7 +4951,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                       }`}
                     >
                       <ScreenShare className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Screen Share</span>
+                      <span className="hidden sm:inline">Screen</span>
                     </button>
                   )}
                 </div>
@@ -4019,171 +4960,26 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
               {/* STAGE CONTAINER */}
               <div className="min-h-[460px] bg-slate-950 text-white flex flex-col justify-between relative overflow-hidden">
                 
-                {/* Clean Stage Header Overlay with Live, REC, Audio Wave, Viewers */}
-                <div className="absolute top-3 left-3 right-3 z-30 flex items-center justify-between pointer-events-auto flex-wrap gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* LIVE badge */}
-                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-600/95 text-[11px] font-black uppercase text-white shadow-md backdrop-blur-xs">
-                      <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
-                      <span>LIVE</span>
-                    </div>
+                {/* Active Recording / Mic Indicator (No duplicate LIVE badge) */}
+                {(isRecording || micActive) && (
+                  <div className="absolute top-3 left-3 z-30 flex items-center gap-2 pointer-events-none">
+                    {isRecording && (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-600 text-[11px] font-bold text-white shadow-md border border-rose-400/50">
+                        <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
+                        <span className="font-mono font-black tracking-wide">REC {formatDuration(recordingSeconds)}</span>
+                      </div>
+                    )}
 
-                    {/* Prominent Recording Indicator ("🔴 REC 00:03:05") */}
-                    <div className="flex items-center gap-1">
-                      {isRecording ? (
-                        <button
-                          onClick={handleToggleRecording}
-                          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-600/95 hover:bg-rose-700 text-[11px] font-bold text-white shadow-lg backdrop-blur-md transition cursor-pointer border border-rose-400/50"
-                          title="ቀጥታ ክፍለ-ጊዜው እየተቀዳ ነው (Click to stop/save recording)"
-                        >
-                          <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
-                          <span className="font-mono font-black tracking-wide">🔴 REC {formatDuration(recordingSeconds)}</span>
-                          <span className="hidden md:inline text-[10px] text-rose-100 font-medium">• እየተቀዳ ነው</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleToggleRecording}
-                          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/85 hover:bg-slate-800 border border-white/20 text-[11px] text-slate-200 font-bold backdrop-blur-md transition cursor-pointer"
-                          title="Start recording live class"
-                        >
-                          <CircleDot className="w-3.5 h-3.5 text-rose-500" />
-                          <span>🔴 Record (ቅረጽ)</span>
-                        </button>
-                      )}
-
-                      {/* Source indicator / picker */}
-                      <button
-                        type="button"
-                        onClick={() => setShowRecordSourceModal(true)}
-                        className="px-2 py-1 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-300 transition cursor-pointer flex items-center gap-1"
-                        title="የቀረጻ ይዘት ምርጫ (Record Source: Slides + Face, Screen, Camera)"
-                      >
-                        <span>
-                          {recordSource === 'stage_composite'
-                            ? '🎓 ስላይድ + ፊት'
-                            : recordSource === 'screen'
-                            ? '🖥️ ስክሪን'
-                            : '👤 ካሜራ ብቻ'}
-                        </span>
-                        <ChevronDown className="w-3 h-3 text-slate-400" />
-                      </button>
-                    </div>
-
-                    {/* Real-Time Voice Speech Activity Equalizer ("eyawerahu eko record ayasayim") */}
-                    <div
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold backdrop-blur-md transition border ${
-                        !micActive
-                          ? 'bg-slate-900/80 border-slate-700 text-slate-400'
-                          : isSpeaking
-                          ? 'bg-emerald-950/90 border-emerald-400/80 text-emerald-300 shadow-md ring-1 ring-emerald-400/50'
-                          : 'bg-slate-900/80 border-emerald-800/40 text-emerald-400/80'
-                      }`}
-                      title={
-                        !micActive
-                          ? 'ድምፅ ተዘግቷል (Microphone Muted)'
-                          : isSpeaking
-                          ? 'ድምፅዎ እየተቀዳ/እየተሰማ ነው (Voice speech capturing live)'
-                          : 'ማይክራፎን ዝግጁ ነው (Mic Active & Ready)'
-                      }
-                    >
-                      {micActive ? (
-                        <Mic className={`w-3.5 h-3.5 ${isSpeaking ? 'text-emerald-400 animate-bounce' : 'text-emerald-400/70'}`} />
-                      ) : (
-                        <MicOff className="w-3.5 h-3.5 text-rose-400" />
-                      )}
-
-                      {micActive ? (
-                        <>
-                          <span className="hidden sm:inline">
-                            {isSpeaking ? '🎤 ድምፅ እየተቀዳ ነው...' : '🎤 ማይክራፎን በርቷል'}
-                          </span>
-                          <AudioWaveBars isSpeaking={isSpeaking} level={audioLevel} barCount={5} />
-                        </>
-                      ) : (
-                        <span>ድምፅ ጠፍቷል</span>
-                      )}
-                    </div>
-
-                    {/* Quick Role Switch: Student <-> Teacher */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onToggleRole) {
-                          onToggleRole();
-                        }
-                        const nextRole = currentUser?.role === 'teacher' ? 'student' : 'teacher';
-                        liveClientRef.current?.changeRole(nextRole);
-                        triggerToast(nextRole === 'teacher' ? '👨‍🏫 ወደ መምህርነት ተቀይረዋል! አሁን ማስተማርና ስርጭት መጀመር ይችላሉ።' : '👨‍🎓 ወደ ተማሪነት ተቀይረዋል።');
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/90 hover:bg-slate-700 border border-white/20 text-[11px] text-white font-bold backdrop-blur-md cursor-pointer transition shadow-md"
-                      title={currentUser?.role === 'teacher' ? 'ወደ ተማሪነት ቀይር (Switch to Student)' : 'ወደ መምህርነት ቀይር (Switch to Teacher)'}
-                    >
-                      <span>{currentUser?.role === 'teacher' ? '👨‍🏫 መምህር ነዎት' : '👨‍🎓 ተማሪ ነዎት'}</span>
-                      <span className="text-[10px] text-emerald-400 font-normal underline">(ቀይር)</span>
-                    </button>
-
-                    {/* Viewers with real-time online count */}
-                    <button
-                      type="button"
-                      onClick={() => setShowAttendeesModal(true)}
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 text-[11px] text-emerald-300 font-bold backdrop-blur-md cursor-pointer transition shadow-md"
-                      title="የተሳተፉ ተማሪዎችን ዝርዝር እይ (Click to view live attendees)"
-                    >
-                      <Users className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{Math.max(1, onlineParticipants.length)} ተሳታፊዎች በመስመር ላይ</span>
-                    </button>
-
-                    {/* Live Broadcast Control for Teacher / Presenter */}
-                    <button
-                      type="button"
-                      onClick={toggleLiveBroadcast}
-                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black transition cursor-pointer shadow-lg backdrop-blur-md ${
-                        isBroadcastingLive
-                          ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse border border-rose-400'
-                          : 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50'
-                      }`}
-                      title={isBroadcastingLive ? "ስርጭት አቁም (Stop Broadcast)" : "ተማሪዎች እርስዎን በቀጥታ እንዲያዩና ድምፅዎን እንዲሰሙ ስርጭት ይጀምሩ"}
-                    >
-                      <Radio className="w-3.5 h-3.5" />
-                      <span>
-                        {isBroadcastingLive ? '🔴 የቀጥታ ስርጭት ላይ ነዎት (Live)' : (currentUser?.role === 'student' ? '📡 አቅርብ / ስርጭት ጀምር' : '📡 የቀጥታ ስርጭት ጀምር (Go Live)')}
-                      </span>
-                    </button>
+                    {micActive && (
+                      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold backdrop-blur-md border ${
+                        isSpeaking ? 'bg-emerald-950/90 border-emerald-400 text-emerald-300' : 'bg-slate-900/80 border-slate-700 text-slate-300'
+                      }`}>
+                        <Mic className={`w-3 h-3 ${isSpeaking ? 'text-emerald-400 animate-bounce' : 'text-slate-400'}`} />
+                        <AudioWaveBars isSpeaking={isSpeaking} level={audioLevel} barCount={4} />
+                      </div>
+                    )}
                   </div>
-
-                  {/* Camera / Face Direct Quick Actions */}
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => handleToggleCamera()}
-                      className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg backdrop-blur-md ${
-                        camActive ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200'
-                      }`}
-                      title="ካሜራ አብራ / አጥፋ"
-                    >
-                      <Camera className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">{camActive ? 'ካሜራ በርቷል' : 'ካሜራ ክፈት'}</span>
-                    </button>
-
-                    <button
-                      onClick={() => photoInputRef.current?.click()}
-                      className="px-3 py-1 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-white/10 text-slate-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg backdrop-blur-md"
-                      title="የእርስዎን ፎቶ በቀጥታ ይጫኑ"
-                    >
-                      <Upload className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="hidden sm:inline">የእኔ ፎቶ</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleExitClass}
-                      className="px-3 py-1 rounded-xl bg-rose-600/90 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg backdrop-blur-md"
-                      title="ከክፍሉ ውጣና ካሜራ/ማይክሮፎኑን አጥፋ (Exit live class & turn off camera/mic)"
-                    >
-                      <PhoneOff className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">ውጣ</span>
-                    </button>
-                  </div>
-                </div>
+                )}
 
                 {/* 1. PIP Picture-in-Picture: Live User or Teacher Webcam Avatar (Visible in Slides, Whiteboard, Video, ScreenShare) */}
                 {stageMode !== 'camera' && stageMode !== 'split' && stageMode !== 'split_ppt' && (
@@ -4207,6 +5003,8 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           teacherName={currentUser?.name || selectedClass.teacherName}
                           isMirrored={isMirrored}
                           camActive={true}
+                          language={currentLang}
+                          isStartingCamera={isStartingCamera}
                           className="w-full h-full"
                         />
                       ) : camActive && teacherPhoto ? (
@@ -4216,13 +5014,17 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           className="w-full h-full object-cover"
                           referrerPolicy="no-referrer"
                         />
-                      ) : (
+                      ) : selectedClass.teacherAvatar ? (
                         <img
                           src={selectedClass.teacherAvatar}
                           alt={selectedClass.teacherName}
                           className="w-full h-full object-cover opacity-80"
                           referrerPolicy="no-referrer"
                         />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 text-slate-200 font-black text-lg">
+                          {(selectedClass.teacherName || 'T').trim().charAt(0).toUpperCase()}
+                        </div>
                       )}
 
                       <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/80 text-[9px] text-white font-bold flex items-center gap-1 z-10">
@@ -4246,8 +5048,8 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 )}
 
                 {/* 0. STUDENT LIVE BROADCAST VIEW (Remote Teacher Video + Live Audio + Snapshot Fallback) */}
-                {!isBroadcastingLive && (remoteTeacherStream || remoteTeacherFrame || (liveBroadcasterInfo && liveBroadcasterInfo.teacherId !== currentUser?.id)) && (
-                  <div className="absolute inset-0 z-25 bg-slate-950 flex flex-col items-center justify-center">
+                {!isBroadcastingLive && !(camActive && (userStream || teacherPhoto)) && stageMode === 'camera' && (remoteTeacherStream || remoteTeacherFrame || (liveBroadcasterInfo && liveBroadcasterInfo.teacherId !== currentUser?.id)) && (
+                  <div className="absolute inset-0 z-25 bg-slate-950 flex flex-col items-center justify-center p-4">
                     {remoteTeacherStream ? (
                       <video
                         ref={(node) => {
@@ -4279,20 +5081,40 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                         />
                         <div className="absolute bottom-4 left-4 px-3 py-1 rounded-xl bg-black/80 border border-emerald-500 text-emerald-300 text-xs font-bold flex items-center gap-1.5 backdrop-blur-md">
                           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                          <span>🔴 የቀጥታ ምስል (Live Feed Active)</span>
+                          <span>{isAm ? '🔴 የቀጥታ ምስል' : '🔴 Live Feed'}</span>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex flex-col items-center justify-center text-center p-6 text-white space-y-3">
-                        <div className="w-16 h-16 rounded-3xl bg-emerald-600/30 border border-emerald-400 flex items-center justify-center text-emerald-400 animate-pulse">
-                          <Radio className="w-8 h-8" />
+                      <div className="flex flex-col items-center justify-center text-center p-6 text-white space-y-3 max-w-md">
+                        <div className="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-emerald-400">
+                          <Radio className="w-7 h-7" />
                         </div>
-                        <h4 className="text-base font-black">
-                          ከመምህር {liveBroadcasterInfo?.teacherName || selectedClass.teacherName} የቀጥታ ስርጭት ጋር በመገናኘት ላይ ነው...
+                        <h4 className="text-sm sm:text-base font-black">
+                          {isAm ? 'የቀጥታ ካሜራ ስርጭት አልተገኘም' : 'No Live Camera Broadcast Active'}
                         </h4>
-                        <p className="text-xs text-slate-400 max-w-sm">
-                          የመምህሩ የቀጥታ ድምፅና ምስል እየተገናኘ ነው፤ እባክዎ ጥቂት ሰከንዶች ይጠብቁ።
+                        <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
+                          {isAm
+                            ? 'በዚህ ሰዓት መምህሩ በቀጥታ ካሜራ እያስተማሩ አይደለም። የትምህርት ስላይዶቹን ወይም ዲጂታል ሰሌዳውን መመልከት ይችላሉ።'
+                            : 'No live camera broadcast is active. You can review the lesson slides or use the digital whiteboard.'}
                         </p>
+                        <div className="flex items-center gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setStageMode('slides')}
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md"
+                          >
+                            <Presentation className="w-3.5 h-3.5" />
+                            <span>{isAm ? 'ስላይዶችን ይመልከቱ' : 'View Slides'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStageMode('whiteboard')}
+                            className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer border border-slate-700"
+                          >
+                            <PenTool className="w-3.5 h-3.5" />
+                            <span>{isAm ? 'ዲጂታል ሰሌዳ' : 'Whiteboard'}</span>
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -4317,7 +5139,9 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                     <div className="absolute top-14 left-4 z-30 flex items-center gap-2.5 bg-slate-900/90 border border-emerald-500/40 px-3.5 py-1.5 rounded-xl shadow-lg backdrop-blur-md">
                       <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
                       <span className="text-xs font-bold text-white">
-                        🔴 መምህር {liveBroadcasterInfo?.teacherName || selectedClass.teacherName} በቀጥታ እያስተማሩ ነው
+                        {isAm
+                          ? `🔴 መምህር ${liveBroadcasterInfo?.teacherName || selectedClass.teacherName} በቀጥታ እያስተማሩ ነው`
+                          : `🔴 Instructor ${liveBroadcasterInfo?.teacherName || selectedClass.teacherName} is Live`}
                       </span>
                     </div>
 
@@ -4338,12 +5162,12 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                               remoteAudioElementRef.current.play().catch(console.warn);
                             }
                             setIsRemoteAudioMuted(false);
-                            triggerToast('🔊 የመምህሩ ድምፅ ተከፍቷል (100% Volume Unmuted)');
+                            triggerToast(currentLang === 'am' ? 'የመምህሩ ድምፅ ተከፍቷል።' : 'Teacher voice unmuted.');
                           }}
                           className="pointer-events-auto px-6 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-black text-sm flex items-center gap-3 shadow-2xl border-2 border-white/60 animate-bounce cursor-pointer transition transform hover:scale-105"
                         >
                           <VolumeX className="w-6 h-6 animate-pulse" />
-                          <span>🔊 የመምህሩን ድምፅ ለመስማት እዚህ ይጫኑ (Click to Unmute Live Audio)</span>
+                          <span>{isAm ? '🔊 የመምህሩን ድምፅ ለመስማት እዚህ ይጫኑ' : '🔊 Click to Unmute Live Audio'}</span>
                         </button>
                       </div>
                     )}
@@ -4362,9 +5186,9 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                             setIsRemoteAudioMuted(nextMuted);
                             if (!nextMuted) {
                               remoteVideoElementRef.current.play().catch(() => {});
-                              triggerToast('🔊 ድምፅ ተከፍቷል (Unmuted - 100%)');
+                              triggerToast(currentLang === 'am' ? 'ድምፅ ተከፍቷል።' : 'Live audio unmuted.');
                             } else {
-                              triggerToast('🔇 ድምፅ ተዘግቷል (Muted)');
+                              triggerToast(currentLang === 'am' ? 'ድምፅ ተዘግቷል።' : 'Audio muted.');
                             }
                           }
                         }}
@@ -4377,12 +5201,12 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                         {isRemoteAudioMuted ? (
                           <>
                             <VolumeX className="w-4 h-4" />
-                            <span>🔊 ድምጽ ክፈት (Unmute Live Audio)</span>
+                            <span>{isAm ? '🔊 ድምጽ ክፈት' : '🔊 Unmute Audio'}</span>
                           </>
                         ) : (
                           <>
                             <Volume2 className="w-4 h-4" />
-                            <span>ድምጽ እየሰራ ነው (Live Audio Playing)</span>
+                            <span>{isAm ? 'ድምጽ እየሰራ ነው' : 'Audio Playing'}</span>
                           </>
                         )}
                       </button>
@@ -4409,6 +5233,8 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                       onFlipCamera={handleFlipCamera}
                       onToggleMirror={() => setIsMirrored((prev) => !prev)}
                       facingMode={cameraFacing}
+                      language={currentLang}
+                      isStartingCamera={isStartingCamera}
                       className="w-full h-full"
                       isSpeaking={isSpeaking}
                     />
@@ -4419,7 +5245,9 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                         <div className="flex items-center gap-2 truncate">
                           <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
                           <span className="truncate text-slate-200">
-                            Iriun Webcam: ስልክዎ ካልበራ ወደ ኮምፒውተር ካሜራ ይቀይሩ
+                            {isAm
+                              ? 'Iriun Webcam: ስልክዎ ካልበራ ወደ ኮምፒውተር ካሜራ ይቀይሩ'
+                              : 'Iriun Webcam: If phone is disconnected, switch to computer camera'}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -4431,13 +5259,13 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                               }}
                               className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs cursor-pointer"
                             >
-                              ወደ ኮምፒውተር ካሜራ ቀይር
+                              {isAm ? 'ወደ ኮምፒውተር ካሜራ ቀይር' : 'Switch to PC Cam'}
                             </button>
                           )}
                           <button
                             onClick={() => setDismissIriunBanner(true)}
                             className="p-1 text-slate-400 hover:text-white cursor-pointer"
-                            title="ዝጋ"
+                            title={isAm ? 'ዝጋ' : 'Dismiss'}
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -4463,11 +5291,13 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                         onUploadPhoto={() => photoInputRef.current?.click()}
                         onOpenNewTab={handleOpenNewTab}
                         onSetDemoPhoto={handleSetDemoPhoto}
-                        onSwitchToFrontCamera={() => startCameraWithFacing('user')}
-                        onSwitchToBackCamera={() => startCameraWithFacing('environment')}
+                        onSwitchToFrontCamera={() => startCameraWithFacing('user', undefined, true)}
+                        onSwitchToBackCamera={() => startCameraWithFacing('environment', undefined, true)}
                         onFlipCamera={handleFlipCamera}
                         onToggleMirror={() => setIsMirrored((prev) => !prev)}
                         facingMode={cameraFacing}
+                        language={currentLang}
+                        isStartingCamera={isStartingCamera}
                         className="w-full h-full min-h-[260px]"
                         isSpeaking={isSpeaking}
                       />
@@ -4505,18 +5335,18 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                             className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition ${
                               isEraser ? 'bg-amber-400 text-slate-950 shadow-xs' : 'bg-slate-800 text-slate-200 hover:text-white'
                             }`}
-                            title="የሰሌዳ ማጥፊያ (Eraser)"
+                            title={isAm ? 'የሰሌዳ ማጥፊያ' : 'Eraser'}
                           >
                             <Eraser className="w-3 h-3" />
-                            <span>ማጥፊያ</span>
+                            <span>{isAm ? 'ማጥፊያ' : 'Eraser'}</span>
                           </button>
                           {/* Eraser Sizes when active */}
                           {isEraser && (
                             <div className="flex items-center gap-0.5 bg-amber-500/20 px-1 py-0.5 rounded text-[9px] font-bold">
                               {[
-                                { sz: 16, lbl: 'ቀጭን' },
-                                { sz: 32, lbl: 'መካከለኛ' },
-                                { sz: 56, lbl: 'ሰፊ' },
+                                { sz: 16, lbl: isAm ? 'ቀጭን' : 'Fine' },
+                                { sz: 32, lbl: isAm ? 'መካከለኛ' : 'Medium' },
+                                { sz: 56, lbl: isAm ? 'ሰፊ' : 'Broad' },
                               ].map((e) => (
                                 <button
                                   key={e.sz}
@@ -4534,25 +5364,25 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           <button
                             onClick={handleUndo}
                             className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-sky-300 hover:text-white flex items-center gap-1 cursor-pointer"
-                            title="የመጨረሻውን ጽሑፍ መልስ (Undo)"
+                            title={isAm ? 'የመጨረሻውን ጽሑፍ መልስ' : 'Undo'}
                           >
                             <RotateCcw className="w-3 h-3" />
-                            <span>መልስ</span>
+                            <span>{isAm ? 'መልስ' : 'Undo'}</span>
                           </button>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={clearCanvas}
                             className="text-red-400 text-[10px] font-bold px-1.5 py-0.5 hover:text-red-300 bg-red-950/40 rounded border border-red-800/40 cursor-pointer"
-                            title="ሰሌዳውን በሙሉ አጽዳ (Clear board)"
+                            title={isAm ? 'ሰሌዳውን በሙሉ አጽዳ' : 'Clear Board'}
                           >
-                            አጽዳ
+                            {isAm ? 'አጽዳ' : 'Clear'}
                           </button>
                           <button
                             onClick={() => setStageMode('whiteboard')}
                             className="text-emerald-400 text-[10px] font-bold px-1.5 py-0.5 hover:text-emerald-300 bg-emerald-950/40 rounded border border-emerald-800/40 cursor-pointer"
                           >
-                            ሙሉ ሰሌዳ
+                            {isAm ? 'ሙሉ ሰሌዳ' : 'Full Board'}
                           </button>
                         </div>
                       </div>
@@ -4576,11 +5406,13 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                         onUploadPhoto={() => photoInputRef.current?.click()}
                         onOpenNewTab={handleOpenNewTab}
                         onSetDemoPhoto={handleSetDemoPhoto}
-                        onSwitchToFrontCamera={() => startCameraWithFacing('user')}
-                        onSwitchToBackCamera={() => startCameraWithFacing('environment')}
+                        onSwitchToFrontCamera={() => startCameraWithFacing('user', undefined, true)}
+                        onSwitchToBackCamera={() => startCameraWithFacing('environment', undefined, true)}
                         onFlipCamera={handleFlipCamera}
                         onToggleMirror={() => setIsMirrored((prev) => !prev)}
                         facingMode={cameraFacing}
+                        language={currentLang}
+                        isStartingCamera={isStartingCamera}
                         className="w-full h-full min-h-[260px]"
                         isSpeaking={isSpeaking}
                       />
@@ -4619,14 +5451,14 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                             title="Upload PPT / PDF"
                           >
                             <Upload className="w-3 h-3 text-amber-400" />
-                            <span>PPT ጫን</span>
+                            <span>{isAm ? 'PPT ጫን' : 'Upload PPT'}</span>
                           </button>
                           <button
                             onClick={() => setStageMode('slides')}
                             className="px-2 py-1 rounded bg-emerald-600/80 hover:bg-emerald-600 text-[10px] font-bold text-white cursor-pointer"
-                            title="Expand to Full Slide view"
+                            title={isAm ? 'ሙሉ ስላይድ አሳይ' : 'Expand to Full Slide view'}
                           >
-                            ሙሉ ስላይድ
+                            {isAm ? 'ሙሉ ስላይድ' : 'Full Slide'}
                           </button>
                         </div>
                       </div>
@@ -4671,7 +5503,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                                 }}
                                 className="px-2 py-0.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-bold shrink-0 cursor-pointer"
                               >
-                                ወደ ሰሌዳ
+                                {isAm ? 'ወደ ሰሌዳ' : 'To Board'}
                               </button>
                             </div>
                           )}
@@ -4705,7 +5537,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold flex items-center gap-1 cursor-pointer"
                         >
                           <ChevronLeft className="w-4 h-4" />
-                          <span>ወደኋላ</span>
+                          <span>{isAm ? 'ወደኋላ' : 'Previous'}</span>
                         </button>
 
                         <div className="flex items-center gap-1 overflow-x-auto max-w-[140px] py-0.5">
@@ -4729,7 +5561,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           onClick={() => setCurrentSlideIndex((prev) => Math.min(slides.length - 1, prev + 1))}
                           className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold flex items-center gap-1 cursor-pointer"
                         >
-                          <span>ወደፊት</span>
+                          <span>{isAm ? 'ወደፊት' : 'Next'}</span>
                           <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
@@ -4759,7 +5591,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                       <div className="flex items-center gap-2">
                         <div className="text-[11px] font-mono uppercase tracking-widest text-emerald-400 font-bold flex items-center gap-2">
                           <Presentation className="w-4 h-4 text-emerald-400" />
-                          <span>ስላይድ {currentSlideIndex + 1} ከ {slides.length}</span>
+                          <span>{isAm ? `ስላይድ ${currentSlideIndex + 1} ከ ${slides.length}` : `Slide ${currentSlideIndex + 1} of ${slides.length}`}</span>
                           <span>•</span>
                           <span>{selectedClass.subject}</span>
                         </div>
@@ -4768,24 +5600,24 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                       {/* Quick PPT Decks & Upload Controls */}
                       <div className="flex items-center gap-1.5 flex-wrap text-xs">
                         <div className="hidden sm:flex items-center gap-1 bg-slate-800/90 px-2 py-1 rounded-lg text-[11px] font-bold text-slate-300">
-                          <span className="text-slate-400">የትምህርት ስላይዶች፦</span>
+                          <span className="text-slate-400">{isAm ? 'የትምህርት ስላይዶች፦' : 'Curriculum Decks:'}</span>
                           <button
                             onClick={() => handleLoadPresetPpt('Physics')}
                             className="px-1.5 py-0.5 rounded hover:bg-emerald-600 hover:text-white transition cursor-pointer"
                           >
-                            ፊዚክስ
+                            {isAm ? 'ፊዚክስ' : 'Physics'}
                           </button>
                           <button
                             onClick={() => handleLoadPresetPpt('Chemistry')}
                             className="px-1.5 py-0.5 rounded hover:bg-emerald-600 hover:text-white transition cursor-pointer"
                           >
-                            ኬሚስትሪ
+                            {isAm ? 'ኬሚስትሪ' : 'Chemistry'}
                           </button>
                           <button
                             onClick={() => handleLoadPresetPpt('Mathematics')}
                             className="px-1.5 py-0.5 rounded hover:bg-emerald-600 hover:text-white transition cursor-pointer"
                           >
-                            ሂሳብ
+                            {isAm ? 'ሂሳብ' : 'Math'}
                           </button>
                         </div>
 
@@ -4795,7 +5627,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           title="Upload PowerPoint (.pptx, .ppt), PDF or Slide Image"
                         >
                           <FileUp className="w-3.5 h-3.5" />
-                          <span>PPT/PDF ጫን</span>
+                          <span>{isAm ? 'PPT/PDF ጫን' : 'Load PPT/PDF'}</span>
                         </button>
 
                         <button
@@ -4804,7 +5636,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           title="Add a new custom slide"
                         >
                           <Plus className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>አዲስ ስላይድ</span>
+                          <span>{isAm ? 'አዲስ ስላይድ' : 'New Slide'}</span>
                         </button>
 
                         <button
@@ -4816,7 +5648,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           title="Side-by-side: Teacher video and PowerPoint slide"
                         >
                           <Layers className="w-3.5 h-3.5" />
-                          <span>👥 ፊት + PPT</span>
+                          <span>{isAm ? '👥 ፊት + PPT' : '👥 Camera + PPT'}</span>
                         </button>
                       </div>
                     </div>
@@ -4860,7 +5692,9 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                         {currentSlide.formulaOrQuote && (
                           <div className="mt-4 p-4 rounded-xl bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 font-mono text-sm font-bold flex items-center justify-between gap-3 shadow-md flex-wrap">
                             <div>
-                              <span className="text-[10px] uppercase text-emerald-400 block font-sans font-bold">High-Yield Exam Formula:</span>
+                              <span className="text-[10px] uppercase text-emerald-400 block font-sans font-bold">
+                                {isAm ? 'አስፈላጊ የፈተና ፎርሙላ:' : 'High-Yield Exam Formula:'}
+                              </span>
                               <span className="text-base text-white">{currentSlide.formulaOrQuote}</span>
                             </div>
                             <button
@@ -4869,9 +5703,9 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                                 insertFormulaToWhiteboard(currentSlide.formulaOrQuote!);
                               }}
                               className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shrink-0 transition cursor-pointer shadow-xs"
-                              title="Copy to Whiteboard"
+                              title={isAm ? 'ወደ ሰሌዳ ገልብጥ' : 'Copy to Whiteboard'}
                             >
-                              ወደ ሰሌዳ ገልብጥ (Copy to Board)
+                              {isAm ? 'ወደ ሰሌዳ ገልብጥ' : 'Copy to Board'}
                             </button>
                           </div>
                         )}
@@ -4897,7 +5731,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                       />
                     </div>
 
-                    {/* Slide Navigation Controls & Interactive Carousel Strip ("eyanseratetiku") */}
+                    {/* Slide Navigation Controls & Interactive Carousel Strip */}
                     <div className="pt-3 border-t border-slate-800 space-y-2">
                       <div className="flex items-center justify-between gap-3">
                         <button
@@ -4906,10 +5740,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer font-bold text-xs flex items-center gap-1.5"
                         >
                           <ChevronLeft className="w-4 h-4" />
-                          <span>ወደኋላ (Prev)</span>
+                          <span>{isAm ? 'ወደኋላ' : 'Previous'}</span>
                         </button>
 
-                        {/* Interactive Direct Slide Number Pills ("eyanseratetiku") */}
+                        {/* Interactive Direct Slide Number Pills */}
                         <div className="flex items-center gap-1.5 overflow-x-auto max-w-xs sm:max-w-md px-2 py-1">
                           {slides.map((_, idx) => (
                             <button
@@ -4920,7 +5754,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                                   ? 'bg-emerald-500 text-white shadow-md ring-2 ring-emerald-300 scale-105'
                                   : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
                               }`}
-                              title={`ስላይድ ${idx + 1}`}
+                              title={isAm ? `ስላይድ ${idx + 1}` : `Slide ${idx + 1}`}
                             >
                               {idx + 1}
                             </button>
@@ -4932,14 +5766,14 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           onClick={() => setCurrentSlideIndex((prev) => Math.min(slides.length - 1, prev + 1))}
                           className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer font-bold text-xs flex items-center gap-1.5"
                         >
-                          <span>ወደፊት (Next)</span>
+                          <span>{isAm ? 'ወደፊት' : 'Next'}</span>
                           <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
 
                       {/* Keyboard & Swipe helper hint */}
                       <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 pt-1">
-                        <span>💡 ቀስቶች (← / →) ወይም Space በመጫን ስላይዶቹን ማሸጋሸግ ይችላሉ</span>
+                        <span>{isAm ? '💡 ቀስቶች (← / →) ወይም Space በመጫን ስላይዶቹን ማሸጋሸግ ይችላሉ' : '💡 Use arrows (← / →) or Space to navigate slides'}</span>
                         <span className="font-mono text-emerald-400 font-bold">
                           {currentSlideIndex + 1} / {slides.length}
                         </span>
@@ -4998,19 +5832,19 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                         className={`p-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
                           isEraser ? 'bg-amber-400 text-slate-950 shadow-md font-black ring-2 ring-amber-300' : 'text-slate-300 hover:text-white hover:bg-slate-800'
                         }`}
-                        title="የሰሌዳ ማጥፊያ (Eraser tool)"
+                        title={isAm ? 'የሰሌዳ ማጥፊያ' : 'Eraser Tool'}
                       >
                         <Eraser className="w-4 h-4" />
-                        <span>ማጥፊያ</span>
+                        <span>{isAm ? 'ማጥፊያ' : 'Eraser'}</span>
                       </button>
 
                       {/* Eraser Thickness Selector */}
                       {isEraser && (
                         <div className="flex items-center gap-1 px-1 border-l border-slate-800 bg-amber-500/10 rounded-lg p-0.5">
                           {[
-                            { sz: 16, label: 'ቀጭን' },
-                            { sz: 32, label: 'መካከለኛ' },
-                            { sz: 56, label: 'ሰፊ' },
+                            { sz: 16, label: isAm ? 'ቀጭን' : 'Fine' },
+                            { sz: 32, label: isAm ? 'መካከለኛ' : 'Medium' },
+                            { sz: 56, label: isAm ? 'ሰፊ' : 'Broad' },
                           ].map((es) => (
                             <button
                               key={es.sz}
@@ -5029,30 +5863,30 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                       <button
                         onClick={handleUndo}
                         className="p-1.5 rounded-lg text-xs font-bold text-sky-400 hover:text-sky-300 hover:bg-slate-800 transition cursor-pointer flex items-center gap-1"
-                        title="የመጨረሻውን ጽሑፍ መልስ (Undo)"
+                        title={isAm ? 'የመጨረሻውን ጽሑፍ መልስ' : 'Undo'}
                       >
                         <RotateCcw className="w-4 h-4" />
-                        <span className="hidden sm:inline text-[10px]">Undo</span>
+                        <span className="hidden sm:inline text-[10px]">{isAm ? 'መልስ' : 'Undo'}</span>
                       </button>
 
                       {/* Clear Canvas */}
                       <button
                         onClick={clearCanvas}
                         className="p-1.5 rounded-lg text-xs font-bold text-red-400 hover:text-red-300 hover:bg-slate-800 transition cursor-pointer flex items-center gap-1"
-                        title="ሰሌዳውን በሙሉ አጽዳ (Clear entire board)"
+                        title={isAm ? 'ሰሌዳውን በሙሉ አጽዳ' : 'Clear Entire Board'}
                       >
                         <Trash2 className="w-4 h-4" />
-                        <span className="hidden sm:inline text-[10px]">አጽዳ</span>
+                        <span className="hidden sm:inline text-[10px]">{isAm ? 'አጽዳ' : 'Clear'}</span>
                       </button>
 
                       {/* Download Snapshot */}
                       <button
                         onClick={downloadCanvasImage}
                         className="p-1.5 rounded-lg text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-slate-800 transition cursor-pointer flex items-center gap-1"
-                        title="የተጻፈበትን ሰሌዳ በምስል አውርድ (Download board notes)"
+                        title={isAm ? 'የተጻፈበትን ሰሌዳ በምስል አውርድ' : 'Download Board Notes'}
                       >
                         <Download className="w-4 h-4" />
-                        <span className="hidden sm:inline text-[10px]">አውርድ</span>
+                        <span className="hidden sm:inline text-[10px]">{isAm ? 'አውርድ' : 'Download'}</span>
                       </button>
                     </div>
 
@@ -5071,51 +5905,182 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                   </div>
                 )}
 
-                {/* 4. MODE: LIVE VIDEO / YOUTUBE STREAM */}
+                {/* 4. MODE: LIVE LESSON VIDEO / UPLOADED RECORDING / YOUTUBE STREAM */}
                 {stageMode === 'video' && (
                   <div className="w-full h-[460px] bg-black flex flex-col items-center justify-center relative">
-                    {/* Notice bar clarifying why face isn't here and offering 1-click switch */}
+                    {/* Hidden file input for teacher uploading a pre-recorded video right inside the room */}
+                    <input
+                      ref={liveLessonVideoInputRef}
+                      type="file"
+                      accept="video/*,.mp4,.webm,.mov,.ogg,.m4v"
+                      onChange={handleUploadLiveLessonVideo}
+                      className="hidden"
+                    />
+
+                    {/* Top control bar for teacher video upload & stage switch */}
                     <div className="w-full bg-slate-900/95 border-b border-slate-800 px-4 py-2 flex items-center justify-between text-xs text-slate-300 z-10 flex-wrap gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                        <span className="text-[11px] text-slate-300">
-                          ይህ የተመዘገበው የትምህርት ቪዲዮ (Lesson Video) ነው። የራስዎን ፊት ለማየት ወይም ካሜራ ለማብራት፦
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                        <span className="text-[11px] text-slate-300 truncate">
+                          {roomLessonVideoTitle
+                            ? (isAm ? `🎬 የመምህሩ ቪዲዮ፦ ${roomLessonVideoTitle}` : `🎬 Lesson Video: ${roomLessonVideoTitle}`)
+                            : isAuthorizedTeacher
+                              ? (isAm
+                                  ? 'የሰሩትን ቪዲዮ ጭነው በማይክሮፎን እየተናገሩ ለተማሪዎች ያስረዱ'
+                                  : 'Upload a pre-recorded video to play & explain live with your mic')
+                              : (isAm
+                                  ? 'መምህሩ የትምህርት ቪዲዮ በማሳየት ላይ ናቸው'
+                                  : 'Instructor is presenting a lesson video')}
                         </span>
                       </div>
-                      <button
-                        onClick={() => {
-                          setStageMode('camera');
-                          if (!camActive) handleToggleCamera(true);
-                        }}
-                        className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
-                      >
-                        <Camera className="w-3.5 h-3.5" />
-                        <span>👤 የእኔን ፊት አሳይ (Show My Face Cam)</span>
-                      </button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isAuthorizedTeacher && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => liveLessonVideoInputRef.current?.click()}
+                              disabled={isUploadingLiveLessonVideo}
+                              className="px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                            >
+                              {isUploadingLiveLessonVideo ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Upload className="w-3.5 h-3.5" />
+                              )}
+                              <span>
+                                {isUploadingLiveLessonVideo
+                                  ? (isAm ? 'በመጫን ላይ...' : 'Uploading...')
+                                  : (roomLessonVideoUrl || roomLessonYoutubeId)
+                                    ? (isAm ? 'ሌላ ቪዲዮ ጫን' : 'Change Video')
+                                    : (isAm ? 'ቪዲዮ ጫን' : 'Upload Video')}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setShowQuickYoutubeInput((v) => !v)}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition cursor-pointer shrink-0"
+                            >
+                              YouTube
+                            </button>
+                          </>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            setStageMode('camera');
+                            if (!camActive) handleToggleCamera(true);
+                          }}
+                          className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>{isAm ? '👤 ካሜራ' : '👤 Camera'}</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="w-full flex-1 relative bg-black flex items-center justify-center">
-                      {selectedClass.youtubeId ? (
+                    {/* Optional quick YouTube URL bar for teachers */}
+                    {isAuthorizedTeacher && showQuickYoutubeInput && (
+                      <form
+                        onSubmit={handleAttachQuickYoutubeToLiveRoom}
+                        className="w-full bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center gap-2 z-10"
+                      >
+                        <input
+                          type="text"
+                          value={quickYoutubeUrl}
+                          onChange={(e) => setQuickYoutubeUrl(e.target.value)}
+                          placeholder="Paste YouTube URL or 11-char ID..."
+                          className="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500"
+                        />
+                        <button
+                          type="submit"
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs cursor-pointer"
+                        >
+                          {isAm ? 'አያይዝ' : 'Load'}
+                        </button>
+                      </form>
+                    )}
+
+                    <div className="w-full flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+                      {roomLessonVideoUrl ? (
+                        <video
+                          ref={lessonVideoPlayerRef}
+                          src={roomLessonVideoUrl}
+                          controls
+                          playsInline
+                          onPlay={() => {
+                            if (isAuthorizedTeacher && !isRemoteSyncingVideoRef.current && lessonVideoPlayerRef.current) {
+                              liveClientRef.current?.sendVideoControl('play', lessonVideoPlayerRef.current.currentTime);
+                            }
+                          }}
+                          onPause={() => {
+                            if (isAuthorizedTeacher && !isRemoteSyncingVideoRef.current && lessonVideoPlayerRef.current) {
+                              liveClientRef.current?.sendVideoControl('pause', lessonVideoPlayerRef.current.currentTime);
+                            }
+                          }}
+                          onSeeked={() => {
+                            if (isAuthorizedTeacher && !isRemoteSyncingVideoRef.current && lessonVideoPlayerRef.current) {
+                              liveClientRef.current?.sendVideoControl('seek', lessonVideoPlayerRef.current.currentTime);
+                            }
+                          }}
+                          className="w-full h-full object-contain bg-black"
+                        />
+                      ) : roomLessonYoutubeId ? (
                         <iframe
-                          src={`https://www.youtube-nocookie.com/embed/${selectedClass.youtubeId}?autoplay=1&enablejsapi=1&rel=0`}
+                          src={`https://www.youtube-nocookie.com/embed/${roomLessonYoutubeId}?autoplay=1&enablejsapi=1&rel=0`}
                           title={selectedClass.title}
                           className="w-full h-full border-0"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                           allowFullScreen
                         />
                       ) : (
-                        <div className="text-center p-6 space-y-3">
-                          <Video className="w-12 h-12 text-emerald-400 mx-auto animate-pulse" />
-                          <h4 className="text-base font-bold text-white">Live Broadcast Connected</h4>
-                          <p className="text-xs text-slate-400 max-w-sm">
-                            The instructor is presenting on the digital blackboard and sharing lecture notes.
-                          </p>
-                          <button
-                            onClick={() => setStageMode('whiteboard')}
-                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition"
-                          >
-                            Open Digital Blackboard
-                          </button>
+                        <div className="text-center p-6 space-y-4 max-w-md">
+                          <div className="w-14 h-14 rounded-2xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center mx-auto text-sky-300">
+                            <Film className="w-7 h-7" />
+                          </div>
+                          <div>
+                            <h4 className="text-base font-bold text-white">
+                              {isAuthorizedTeacher
+                                ? (isAm ? 'የሰሩትን የትምህርት ቪዲዮ ይጫኑ' : 'Upload a Lesson Video to Teach With')
+                                : (isAm ? 'የትምህርት ቪዲዮ በመጠበቅ ላይ' : 'Waiting for Lesson Video')}
+                            </h4>
+                            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                              {isAuthorizedTeacher
+                                ? (isAm
+                                    ? 'ከኮምፒውተርዎ ወይም ከስልክዎ የቀረጹትን ቪዲዮ (MP4, WebM, MOV) በመጫን ለተማሪዎች እያሳዩ እና በድምፅ እየተናገሩ ማስረዳት ይችላሉ።'
+                                    : 'Upload any video file (MP4, WebM, MOV) from your device. Play, pause, and explain concepts live with your microphone.')
+                                : (isAm
+                                    ? 'መምህሩ ቪዲዮ ሲጭኑ በቀጥታ እዚህ ይታያል።'
+                                    : 'When the instructor loads a lesson video, it will appear right here.')}
+                            </p>
+                          </div>
+                          {isAuthorizedTeacher ? (
+                            <div className="flex items-center justify-center gap-2 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => liveLessonVideoInputRef.current?.click()}
+                                disabled={isUploadingLiveLessonVideo}
+                                className="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition flex items-center gap-2 cursor-pointer shadow-md"
+                              >
+                                <Upload className="w-4 h-4" />
+                                <span>{isAm ? 'ቪዲዮ ከመሳሪያ ጫን (MP4/WebM)' : 'Upload Video File'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStageMode('whiteboard')}
+                                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition cursor-pointer"
+                              >
+                                {isAm ? 'ወደ ሰሌዳ ሂድ' : 'Whiteboard'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setStageMode('slides')}
+                              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition cursor-pointer"
+                            >
+                              {isAm ? 'ስላይዶችን እይ' : 'View Slides'}
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -5142,328 +6107,270 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 )}
               </div>
 
-              {/* Bottom Interactive Classroom Toolbar */}
-              <div className="bg-slate-50 px-4 py-3 border-t border-slate-200 flex items-center justify-between flex-wrap gap-2.5">
+              {/* Clean Bottom Classroom Toolbar with 3-Dot Overflow Menu */}
+              <div className="bg-slate-50 px-3 sm:px-4 py-2.5 border-t border-slate-200 flex items-center justify-between gap-2 relative">
+                {/* Primary Left Controls: Mic + Camera + Go Live / Raise Hand */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Microphone with Real-time Voice Audio Meter */}
-                  <button
-                    onClick={handleToggleMic}
-                    className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
-                      micActive
-                        ? isSpeaking
-                          ? 'bg-emerald-700 text-white border-emerald-600 shadow-md ring-2 ring-emerald-400'
-                          : 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                        : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                    }`}
-                    title={micActive ? (isSpeaking ? 'ድምፅዎ እየተቀዳ ነው (Speaking)' : 'ድምፅ አጥፋ (Mute Mic)') : 'ድምፅ ክፈት (Unmute Mic)'}
-                  >
-                    {micActive ? <Mic className={`w-4 h-4 ${isSpeaking ? 'animate-bounce text-white' : ''}`} /> : <MicOff className="w-4 h-4 text-red-500" />}
-                    <span className="hidden sm:inline">{micActive ? (isSpeaking ? 'ድምፅ ይሰማል' : 'Mute') : 'Unmute'}</span>
-                    {micActive && <AudioWaveBars isSpeaking={isSpeaking} level={audioLevel} barCount={4} />}
-                  </button>
-
-                  {/* Accept Sound Coming from Outside (High-Sensitivity Audio Toggle) */}
                   <button
                     type="button"
-                    onClick={handleToggleExternalSound}
-                    className={`px-2.5 py-2 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                      captureExternalSound
-                        ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-400/40'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    onClick={handleToggleMic}
+                    className={`px-3 py-2 rounded-xl border transition cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
+                      micActive
+                        ? isSpeaking
+                          ? 'bg-emerald-700 text-white border-emerald-600 shadow-xs ring-1 ring-emerald-400'
+                          : 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
-                    title="የውጭ ወይም የክፍል ድምፅ ተቀባይ (Accept Sound Coming from Outside / High Sensitivity)"
+                    title={micActive ? (isAm ? 'ማይክሮፎን ዝጋ' : 'Mute Microphone') : (isAm ? 'ማይክሮፎን ክፈት' : 'Unmute Microphone')}
                   >
-                    <Volume2 className={`w-3.5 h-3.5 ${captureExternalSound ? 'text-white animate-pulse' : 'text-slate-500'}`} />
-                    <span className="hidden sm:inline">
-                      {captureExternalSound ? '🔊 የውጭ ድምፅ: በርቷል' : '🔇 የውጭ ድምፅ: ጠፍቷል'}
+                    {micActive ? <Mic className={`w-3.5 h-3.5 ${isSpeaking ? 'animate-bounce text-white' : ''}`} /> : <MicOff className="w-3.5 h-3.5 text-rose-500" />}
+                    <span>{micActive ? (isAm ? 'ድምፅ ክፍት' : 'Mic On') : (isAm ? 'ድምፅ ዝግ' : 'Mic Off')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isStartingCamera}
+                    onClick={() => handleToggleCamera()}
+                    className={`px-3 py-2 rounded-xl border transition cursor-pointer disabled:opacity-60 flex items-center gap-1.5 text-xs font-bold ${
+                      camActive
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                    title={camActive ? (isAm ? 'ካሜራ አጥፋ' : 'Turn off camera') : (isAm ? 'ካሜራ አብራ' : 'Turn on camera')}
+                  >
+                    <Camera className={`w-3.5 h-3.5 ${isStartingCamera ? 'animate-spin' : ''}`} />
+                    <span>
+                      {isStartingCamera
+                        ? (isAm ? 'በመክፈት ላይ...' : 'Opening...')
+                        : camActive
+                          ? (isAm ? 'ካሜራ በርቷል' : 'Cam On')
+                          : (isAm ? 'ካሜራ ክፈት' : 'Start Camera')}
                     </span>
                   </button>
 
-                  {/* Microphone Device Selector Dropdown (when devices detected) */}
-                  {availableMicrophones.length > 0 && (
-                    <div className="flex items-center gap-1.5 bg-white px-2 py-1.5 rounded-xl border border-slate-200 text-xs shadow-2xs">
-                      <Mic className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <select
-                        value={selectedMicrophoneId || ''}
-                        onChange={(e) => handleSelectMicrophoneDevice(e.target.value)}
-                        className="bg-transparent text-slate-700 text-xs font-semibold focus:outline-none cursor-pointer max-w-[120px] sm:max-w-[150px] truncate"
-                        title="የማይክሮፎን ምንጭ ይምረጡ (Select Input Microphone: External/Headset/Built-in)"
-                      >
-                        <option value="" className="text-slate-800">
-                          🎙️ ነባሪ ማይክ (Default)
-                        </option>
-                        {availableMicrophones.map((mic, idx) => (
-                          <option key={mic.deviceId || idx} value={mic.deviceId} className="text-slate-800">
-                            {mic.label || `ማይክ ${idx + 1}`}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Quick Mic Test Button */}
-                  <button
-                    type="button"
-                    onClick={handleTestMic}
-                    disabled={isTestingMic}
-                    className={`px-2.5 py-2 rounded-xl border text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                      isTestingMic
-                        ? 'bg-amber-100 border-amber-300 text-amber-800 animate-pulse'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                    title="ማይክሮፎንዎንና ድምፅዎን እዚህ ጋር ይፈትሹ (Test microphone audio loopback)"
-                  >
-                    <Mic className={`w-3.5 h-3.5 ${isTestingMic ? 'text-amber-600 animate-bounce' : 'text-slate-500'}`} />
-                    <span className="hidden md:inline">{isTestingMic ? 'ድምፅ እየፈተሸ...' : 'ማይክ ፈትሽ'}</span>
-                  </button>
-
-                  {/* Speaker Chime Test Button */}
-                  <button
-                    type="button"
-                    onClick={handleTestSpeakers}
-                    disabled={isTestingSpeakers}
-                    className={`px-2.5 py-2 rounded-xl border text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                      isTestingSpeakers
-                        ? 'bg-emerald-100 border-emerald-300 text-emerald-800 animate-pulse'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                    title="ስፒከርዎን ወይም የጆሮ ማዳመጫዎን በድምፅ ቃጭል ይፈትሹ (Play speaker confirmation chime)"
-                  >
-                    <Volume2 className={`w-3.5 h-3.5 ${isTestingSpeakers ? 'text-emerald-600 animate-spin' : 'text-slate-500'}`} />
-                    <span className="hidden md:inline">{isTestingSpeakers ? 'ድምፅ እየጮኸ...' : 'ስፒከር ፈትሽ'}</span>
-                  </button>
-
-                  {/* Live Mic Loopback / Hear My Own Voice Monitor */}
-                  <button
-                    type="button"
-                    onClick={handleToggleMicMonitor}
-                    className={`px-2.5 py-2 rounded-xl border text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                      isMonitoringMic
-                        ? 'bg-purple-600 border-purple-500 text-white shadow-md ring-2 ring-purple-300 animate-pulse'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                    title="የራስዎን እና የውጭ ድምፅ በስፒከር/ጆሮ ማዳመጫ በቀጥታ ያድምጡ (Listen to live mic & room audio in headphones/speakers)"
-                  >
-                    <Headphones className={`w-3.5 h-3.5 ${isMonitoringMic ? 'text-white' : 'text-purple-600'}`} />
-                    <span className="hidden lg:inline">{isMonitoringMic ? '🎧 ድምፅ እያዳመጡ ነው' : '🎧 ድምፄን አድምጥ'}</span>
-                  </button>
-
-                  {/* Class Recording Toggle Button ("🔴 REC") */}
-                  <div className="flex items-center">
+                  {isAuthorizedTeacher ? (
                     <button
-                      onClick={handleToggleRecording}
-                      className={`p-2.5 rounded-l-xl border-y border-l transition cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
-                        isRecording
-                          ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-600 shadow-md animate-pulse rounded-r-xl'
+                      type="button"
+                      onClick={toggleLiveBroadcast}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                        isBroadcastingLive
+                          ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse shadow-sm'
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xs'
+                      }`}
+                      title={isBroadcastingLive ? (isAm ? 'ስርጭት አቁም' : 'Stop Broadcast') : (isAm ? 'የቀጥታ ስርጭት ጀምር' : 'Start Broadcast')}
+                    >
+                      <Radio className="w-3.5 h-3.5" />
+                      <span>{isBroadcastingLive ? (isAm ? 'ስርጭት አቁም' : 'Stop Live') : (isAm ? 'ስርጭት ጀምር' : 'Broadcast')}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsHandRaised(!isHandRaised);
+                        triggerToast(!isHandRaised ? (isAm ? 'እጅዎ ተነስቷል፤ መምህሩ ተነግሮታል።' : 'Hand raised. Instructor notified.') : (isAm ? 'እጅዎ ዝቅ ብሏል።' : 'Hand lowered.'));
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                        isHandRaised
+                          ? 'bg-amber-400 text-slate-950 border-amber-500 font-black'
                           : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
-                      title={isRecording ? 'ቀረጻውን አቁም / አስቀምጥ (Stop Recording)' : 'ትምህርቱን መቅዳት ጀምር (Record Live Class)'}
+                      title={isAm ? 'እጅ አንሳ' : 'Raise Hand'}
                     >
-                      <CircleDot className={`w-4 h-4 ${isRecording ? 'text-white' : 'text-rose-600'}`} />
-                      <span className="font-mono">{isRecording ? `🔴 REC ${formatDuration(recordingSeconds)}` : '🔴 Record (ቅረጽ)'}</span>
+                      <span>✋</span>
+                      <span>{isHandRaised ? (isAm ? 'እጅ ተነስቷል' : 'Hand Up') : (isAm ? 'እጅ አንሳ' : 'Raise Hand')}</span>
                     </button>
-                    {!isRecording && (
-                      <button
-                        type="button"
-                        onClick={() => setShowRecordSourceModal(true)}
-                        className="p-2.5 rounded-r-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 transition cursor-pointer"
-                        title="የቀረጻ ምንጭ ምረጥ (Choose recording mode: Slides + Face, Screen, Camera)"
-                      >
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      </button>
+                  )}
+                </div>
+
+                {/* Right Controls: 3-Dot More Menu + Leave */}
+                <div className="flex items-center gap-2 relative">
+                  {isRecording && (
+                    <span className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-mono font-black animate-pulse hidden sm:inline-flex items-center gap-1">
+                      REC {formatDuration(recordingSeconds)}
+                    </span>
+                  )}
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowMoreToolbarMenu((prev) => !prev)}
+                      className={`p-2 rounded-xl border transition cursor-pointer flex items-center gap-1 text-xs font-bold ${
+                        showMoreToolbarMenu
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
+                      }`}
+                      title={isAm ? 'ተጨማሪ መሳሪያዎች' : 'More Tools'}
+                      aria-expanded={showMoreToolbarMenu}
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                      <span className="hidden sm:inline">{isAm ? 'ተጨማሪ' : 'More'}</span>
+                    </button>
+
+                    {showMoreToolbarMenu && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={() => setShowMoreToolbarMenu(false)}
+                        />
+                        <div className="absolute right-0 bottom-full mb-2 w-60 rounded-2xl bg-white border border-slate-200 shadow-2xl p-1.5 z-40 space-y-1 text-xs text-slate-800">
+                          {isAuthorizedTeacher && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowMoreToolbarMenu(false);
+                                setStageMode('video');
+                                if (!roomLessonVideoUrl && !roomLessonYoutubeId) {
+                                  liveLessonVideoInputRef.current?.click();
+                                }
+                              }}
+                              className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center gap-2.5 font-semibold text-left cursor-pointer"
+                            >
+                              <Film className="w-4 h-4 text-sky-600 shrink-0" />
+                              <span>{isAm ? 'የትምህርት ቪዲዮ ጫን/አጫውት' : 'Upload / Play Lesson Video'}</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowMoreToolbarMenu(false);
+                              handleToggleScreenShare();
+                            }}
+                            className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center gap-2.5 font-semibold text-left cursor-pointer"
+                          >
+                            <ScreenShare className="w-4 h-4 text-blue-600 shrink-0" />
+                            <span>{isScreenSharing ? (isAm ? 'ስክሪን ማጋራት አቁም' : 'Stop Screen Share') : (isAm ? 'ስክሪን አጋራ' : 'Share Screen')}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowMoreToolbarMenu(false);
+                              handleToggleRecording();
+                            }}
+                            className={`w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center justify-between font-semibold text-left cursor-pointer ${
+                              isRecording ? 'bg-rose-50 text-rose-700' : ''
+                            }`}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <CircleDot className={`w-4 h-4 shrink-0 ${isRecording ? 'text-rose-600 animate-pulse' : 'text-rose-500'}`} />
+                              <span>{isRecording ? (isAm ? 'ቀረጻ አቁም' : 'Stop Recording') : (isAm ? 'ክፍሉን ቅረጽ' : 'Record Class')}</span>
+                            </span>
+                            {isRecording && <span className="text-[10px] font-mono">{formatDuration(recordingSeconds)}</span>}
+                          </button>
+
+                          {camActive && userStream && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowMoreToolbarMenu(false);
+                                handleFlipCamera();
+                              }}
+                              className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center gap-2.5 font-semibold text-left cursor-pointer"
+                            >
+                              <RefreshCw className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>{isAm ? 'ካሜራ ቀያይር (ፊት/ጀርባ)' : 'Flip Camera (Front/Back)'}</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowMoreToolbarMenu(false);
+                              handleTestMic();
+                            }}
+                            className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center gap-2.5 font-semibold text-left cursor-pointer"
+                          >
+                            <Volume2 className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>{isAm ? 'ማይክሮፎን ሞክር' : 'Test Microphone'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowMoreToolbarMenu(false);
+                              handleToggleMicMonitor();
+                            }}
+                            className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center gap-2.5 font-semibold text-left cursor-pointer"
+                          >
+                            <Mic className={`w-4 h-4 shrink-0 ${isMonitoringMic ? 'text-emerald-600' : 'text-slate-500'}`} />
+                            <span>{isMonitoringMic ? (isAm ? 'የድምፅ ማዳመጫ አጥፋ' : 'Stop Mic Monitor') : (isAm ? 'ድምፅህን አዳምጥ' : 'Monitor My Voice')}</span>
+                          </button>
+
+                          {isAuthorizedTeacher && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowMoreToolbarMenu(false);
+                                setIsHandRaised(!isHandRaised);
+                                triggerToast(!isHandRaised ? (isAm ? 'እጅዎ ተነስቷል።' : 'Hand raised.') : (isAm ? 'እጅዎ ዝቅ ብሏል።' : 'Hand lowered.'));
+                              }}
+                              className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center gap-2.5 font-semibold text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-center">✋</span>
+                              <span>{isHandRaised ? (isAm ? 'እጅ ዝቅ አድርግ' : 'Lower Hand') : (isAm ? 'እጅ አንሳ' : 'Raise Hand')}</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowMoreToolbarMenu(false);
+                              handleToggleFullscreen();
+                            }}
+                            className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center gap-2.5 font-semibold text-left cursor-pointer"
+                          >
+                            {isFullscreen ? <Minimize2 className="w-4 h-4 text-slate-600 shrink-0" /> : <Maximize2 className="w-4 h-4 text-slate-600 shrink-0" />}
+                            <span>{isFullscreen ? (isAm ? 'ሙሉ ስክሪን ዝጋ' : 'Exit Fullscreen') : (isAm ? 'ሙሉ ስክሪን' : 'Fullscreen')}</span>
+                          </button>
+                        </div>
+                      </>
                     )}
                   </div>
 
-                  {/* Front Face Camera Button */}
+                  {/* Leave Class */}
                   <button
                     type="button"
-                    onClick={() => {
-                      startCameraWithFacing('user');
-                    }}
-                    className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
-                      camActive && cameraFacing === 'user' && userStream
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="የፊት-ለፊት ካሜራን አብራ (Turn on Front Face Camera)"
+                    onClick={handleExitClass}
+                    className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    title={isAm ? 'ከክፍል ውጣ' : 'Leave Classroom'}
                   >
-                    <Video className="w-4 h-4" />
-                    <span>🤳 ፊት ካሜራ (Front Face)</span>
+                    <PhoneOff className="w-3.5 h-3.5" />
+                    <span>{isAm ? 'ውጣ' : 'Leave'}</span>
                   </button>
-
-                  {/* Back Camera Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      startCameraWithFacing('environment');
-                    }}
-                    className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
-                      camActive && cameraFacing === 'environment' && userStream
-                        ? 'bg-sky-600 text-white border-sky-600 shadow-md ring-2 ring-sky-300'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="የጀርባ ካሜራን አብራ (Turn on Back Camera)"
-                  >
-                    <Camera className="w-4 h-4" />
-                    <span className="hidden sm:inline">📷 ጀርባ ካሜራ (Back Cam)</span>
-                  </button>
-
-                  {/* Camera Device Selector Dropdown (when devices detected) */}
-                  {availableCameras.length > 0 && (
-                    <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs shadow-2xs">
-                      <Video className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <select
-                        value={selectedCameraId || activeVideoTrack?.getSettings()?.deviceId || ''}
-                        onChange={(e) => handleSelectCameraDevice(e.target.value)}
-                        className="bg-transparent text-slate-700 text-xs font-semibold focus:outline-none cursor-pointer max-w-[130px] sm:max-w-[160px] truncate"
-                        title="የሚጠቀሙትን ካሜራ ይምረጡ (Select Camera Device)"
-                      >
-                        {availableCameras.map((cam, idx) => {
-                          const l = (cam.label || '').toLowerCase();
-                          const tag =
-                            l.includes('front') || l.includes('user') || l.includes('selfie') || l.includes('integrated') || l.includes('face')
-                              ? '🤳 ፊት: '
-                              : l.includes('back') || l.includes('environment') || l.includes('rear')
-                              ? '📷 ጀርባ: '
-                              : '📹 ';
-                          return (
-                            <option key={cam.deviceId || idx} value={cam.deviceId} className="text-slate-800">
-                              {tag}{cam.label || `ካሜራ ${idx + 1}`}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Mirror Video Toggle (when camera is on) */}
-                  {camActive && userStream && (
-                    <button
-                      onClick={() => setIsMirrored(!isMirrored)}
-                      className="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition cursor-pointer flex items-center gap-1 text-xs font-bold"
-                      title="Mirror camera video (መስታወት)"
-                    >
-                      <span>{isMirrored ? 'መስታወት: በርቷል' : 'መደበኛ'}</span>
-                    </button>
-                  )}
-
-                  {/* Flip Camera (when camera is on) */}
-                  {camActive && userStream && (
-                    <button
-                      onClick={handleFlipCamera}
-                      className="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
-                      title="Flip front / back camera (ካሜራ አዙር)"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
-                      <span className="hidden md:inline">አዙር</span>
-                    </button>
-                  )}
-
-                  {/* Stage Mode: Split Screen (Face + Blackboard) Toggle */}
-                  <button
-                    onClick={() => setStageMode(stageMode === 'split' ? 'camera' : 'split')}
-                    className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
-                      stageMode === 'split'
-                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="Toggle Split Screen (Teacher Face + Blackboard)"
-                  >
-                    <Layers className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="hidden sm:inline">{stageMode === 'split' ? 'ካሜራ ብቻ' : 'ፊት + ሰሌዳ'}</span>
-                  </button>
-
-                  {/* Upload Face Photo Button */}
-                  <button
-                    onClick={() => photoInputRef.current?.click()}
-                    className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
-                      camActive && teacherPhoto && !userStream
-                        ? 'bg-emerald-700 text-white border-emerald-600'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="Upload face photo so students can see your face"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="hidden md:inline">{teacherPhoto ? 'Change Photo' : 'Upload Face'}</span>
-                  </button>
-
-                  {/* Open In New Tab */}
-                  <button
-                    onClick={handleOpenNewTab}
-                    className="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
-                    title="Open app in new tab for direct browser webcam access"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 text-slate-600" />
-                    <span className="hidden lg:inline">New Tab</span>
-                  </button>
-
-                  {/* Flip Camera (when camera is on) */}
-                  {camActive && userStream && (
-                    <button
-                      onClick={handleFlipCamera}
-                      className="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
-                      title="Flip front / back camera"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
-                      <span className="hidden md:inline">Flip Camera</span>
-                    </button>
-                  )}
-
-                  {/* Screen Share */}
-                  <button
-                    onClick={handleToggleScreenShare}
-                    className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
-                      isScreenSharing
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="Share your computer screen"
-                  >
-                    <ScreenShare className="w-4 h-4" />
-                    <span className="hidden sm:inline">{isScreenSharing ? 'Stop Share' : 'Share Screen'}</span>
-                  </button>
-
-                  {/* Raise Hand */}
-                  <button
-                    onClick={() => {
-                      setIsHandRaised(!isHandRaised);
-                      triggerToast(!isHandRaised ? '✋ Hand raised! Instructor and class notified.' : 'Hand lowered.');
-                    }}
-                    className={`px-3 py-2 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                      isHandRaised
-                        ? 'bg-amber-400 text-slate-950 border-amber-400 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span>✋</span>
-                    <span>{isHandRaised ? 'Hand Raised' : 'Raise Hand'}</span>
-                  </button>
-
-                  {/* Attendees */}
-                  <button
-                    onClick={() => setShowAttendeesModal(true)}
-                    className="px-3 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Users className="w-4 h-4 text-emerald-600" />
-                    <span>{selectedClass.currentViewers.toLocaleString()} Students</span>
-                  </button>
-                </div>
-
-                {/* Attached Lesson Material */}
-                <div className="flex items-center gap-2 text-xs text-slate-600">
-                  <span className="hidden sm:inline font-bold">Notes:</span>
-                  {(selectedClass.materialsAttached || []).map((mat) => (
-                    <button
-                      key={mat}
-                      onClick={() => onOpenDocument(mat)}
-                      className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border border-emerald-200 flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="truncate max-w-[140px]">{mat}</span>
-                    </button>
-                  ))}
                 </div>
               </div>
+
+              {/* Lesson Materials Attached */}
+              {selectedClass.materialsAttached && selectedClass.materialsAttached.length > 0 ? (
+                <div className="bg-emerald-50/70 px-4 py-2 border-t border-emerald-100 flex items-center justify-between text-xs text-slate-700 flex-wrap gap-2">
+                  <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>{isAm ? 'የትምህርት ሰነዶች:' : 'Lesson Materials:'}</span>
+                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {selectedClass.materialsAttached.map((mat) => (
+                      <button
+                        key={mat}
+                        onClick={() => handleOpenClassMaterial(mat)}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-100 text-emerald-900 font-bold border border-emerald-200 flex items-center gap-1.5 shadow-2xs transition cursor-pointer text-[11px]"
+                        title={isAm ? 'ሰነዱን ክፈት እና አንብብ' : 'Preview & Download Material'}
+                      >
+                        <FileText className="w-3 h-3 text-emerald-600" />
+                        <span className="truncate max-w-[200px]">{mat}</span>
+                        <span className="text-emerald-700 font-bold">↗</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-50/80 px-4 py-1.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                  <span className="flex items-center gap-1.5 font-medium text-[11px]">
+                    <FileText className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{isAm ? 'ምንም የተያያዘ ሰነድ የለም' : 'No attached materials for this session'}</span>
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* In-Lecture Live Poll */}
@@ -5472,7 +6379,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-bold text-amber-700 uppercase tracking-wider">
                     <BarChart2 className="w-4 h-4" />
-                    <span>Live Class Poll from Teacher (የክፍል ውስጥ ጥናት ጥያቄ)</span>
+                    <span>Live Class Poll</span>
                   </div>
                   <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 font-bold border border-amber-200">
                     Active Poll
@@ -5529,271 +6436,847 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             )}
           </div>
 
-          {/* Right Column: Live Chat & Real-Time Q&A */}
-          <div className="rounded-2xl bg-white border border-slate-200 flex flex-col h-[600px] shadow-xs overflow-hidden">
-            {/* Chat Header */}
-            <div className="p-3.5 border-b border-slate-100 bg-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-emerald-600" />
-                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Live Chat & Exam Q&A
-                </h4>
+          {/* Right Column: Live Chat & Real-Time Interactive Q&A System */}
+          <div className={`rounded-3xl bg-white border border-slate-200/90 shadow-sm p-4 flex-col h-[700px] overflow-hidden ${
+            mobileClassroomTab === 'chat' ? 'flex' : 'hidden lg:flex'
+          }`}>
+            {/* 1. Header with Real-time Presence & Search Bar */}
+            <div className="pb-3 border-b border-slate-100 shrink-0 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <MessageSquare className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight truncate">
+                      Classroom Chat &amp; Q&amp;A
+                    </h3>
+                    <p className="text-[11px] text-slate-500 truncate hidden sm:block">
+                      Real-time interactive discussion &amp; academic doubt resolution
+                    </p>
+                  </div>
+                </div>
+
+                {/* Real-time Presence Counters */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>{onlineParticipants.length} {isAm ? 'ተሳታፊዎች' : 'Online'}</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Questions Only Filter */}
+              {/* Instant Search Bar */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={chatSearchQuery}
+                  onChange={(e) => setChatSearchQuery(e.target.value)}
+                  placeholder="Search questions, doubts, topics, or formulas..."
+                  className="w-full bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-xl pl-8 pr-8 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition"
+                />
+                {chatSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setChatSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Primary Navigation Tabs: Live Chat | Academic Q&A | Unanswered | Polls */}
+            <div className="grid grid-cols-4 gap-1 py-2.5 border-b border-slate-100 shrink-0">
               <button
-                onClick={() => setIsQuestionFilter(!isQuestionFilter)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
-                  isQuestionFilter
-                    ? 'bg-amber-100 text-amber-900 border-amber-300'
-                    : 'bg-slate-100 text-slate-600 border-slate-200 hover:text-slate-900'
+                type="button"
+                onClick={() => setActiveChatTab('chat')}
+                className={`py-1.5 px-1 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer truncate ${
+                  activeChatTab === 'chat'
+                    ? 'bg-slate-900 text-white shadow-2xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60'
                 }`}
+                title="All live classroom messages"
               >
-                Questions Only
+                <MessageSquare className="w-3 h-3 shrink-0" />
+                <span className="truncate">Chat ({chatMessages.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveChatTab('qa')}
+                className={`py-1.5 px-1 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer truncate ${
+                  activeChatTab === 'qa'
+                    ? 'bg-emerald-700 text-white shadow-2xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60'
+                }`}
+                title="All academic questions and doubts"
+              >
+                <HelpCircle className="w-3 h-3 shrink-0" />
+                <span className="truncate">Q&amp;A ({chatMessages.filter((m) => m.isQuestion).length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveChatTab('pending')}
+                className={`py-1.5 px-1 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer truncate ${
+                  activeChatTab === 'pending'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60'
+                }`}
+                title="Questions awaiting instructor answer"
+              >
+                <Clock className="w-3 h-3 shrink-0" />
+                <span className="truncate">Unanswered ({chatMessages.filter((m) => m.isQuestion && !m.isAnswered).length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveChatTab('polls')}
+                className={`py-1.5 px-1 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer truncate ${
+                  activeChatTab === 'polls'
+                    ? 'bg-purple-700 text-white shadow-2xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60'
+                }`}
+                title="Live classroom polls & interactive quizzes"
+              >
+                <BarChart2 className="w-3 h-3 shrink-0" />
+                <span className="truncate">Polls ({selectedClass.pollQuestion ? 1 : 0})</span>
               </button>
             </div>
 
-            {/* Chat Messages Feed */}
-            <div className="flex-1 p-3.5 overflow-y-auto space-y-3 text-xs bg-slate-50/50">
-              {chatMessages
-                .filter((m) => (isQuestionFilter ? m.isQuestion : true))
-                .map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`p-3 rounded-xl border transition ${
-                      msg.role === 'teacher'
-                        ? 'bg-emerald-50 border-emerald-200 text-slate-800'
-                        : msg.role === 'ai_tutor'
-                        ? 'bg-violet-50 border-violet-200 text-slate-800'
-                        : msg.isQuestion
-                        ? 'bg-amber-50/80 border-amber-200 text-slate-800'
-                        : 'bg-white border-slate-200 text-slate-800 shadow-2xs'
+            {/* 3. Sub-filter bar for Q&A tab */}
+            {activeChatTab === 'qa' && (
+              <div className="flex items-center gap-1 py-2 border-b border-slate-100 shrink-0 overflow-x-auto text-[11px]">
+                <span className="text-slate-400 font-bold text-[10px] uppercase tracking-wider mr-1 shrink-0 flex items-center gap-1">
+                  <Filter className="w-3 h-3" />
+                  <span>Filter:</span>
+                </span>
+                {[
+                  { id: 'all', label: `All (${chatMessages.filter((m) => m.isQuestion).length})` },
+                  { id: 'unanswered', label: `Pending (${chatMessages.filter((m) => m.isQuestion && !m.isAnswered).length})` },
+                  { id: 'answered', label: `Answered (${chatMessages.filter((m) => m.isQuestion && m.isAnswered).length})` },
+                  { id: 'pinned', label: `Pinned (${chatMessages.filter((m) => m.isQuestion && m.isPinned).length})` },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setQaStatusFilter(f.id as any)}
+                    className={`px-2.5 py-0.5 rounded-lg font-semibold transition shrink-0 cursor-pointer ${
+                      qaStatusFilter === f.id
+                        ? 'bg-slate-900 text-white shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-slate-900">{msg.sender}</span>
-                        {msg.role === 'teacher' && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-600 text-white font-bold uppercase">
-                            Teacher
-                          </span>
-                        )}
-                        {msg.role === 'ai_tutor' && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-600 text-white font-bold uppercase flex items-center gap-1">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            AI Co-Tutor
-                          </span>
-                        )}
-                        {msg.isQuestion && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold border border-amber-200">
-                            Q&A
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-mono">{msg.timestamp}</span>
-                    </div>
-
-                    <p className="leading-relaxed text-slate-700">{msg.text}</p>
-
-                    {/* Upvote & Teacher Answer Action */}
-                    <div className="mt-2 flex items-center justify-between pt-1 border-t border-slate-100/70">
-                      <button
-                        onClick={() => handleUpvote(msg.id)}
-                        className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-emerald-700 font-medium transition cursor-pointer"
-                      >
-                        <ThumbsUp className="w-3 h-3" />
-                        <span>{msg.upvotes}</span>
-                      </button>
-
-                      {msg.isAnswered ? (
-                        <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          Answered by Teacher
-                        </span>
-                      ) : msg.isQuestion ? (
-                        <button
-                          onClick={() => handleToggleAnswered(msg.id)}
-                          className="text-[10px] text-slate-400 hover:text-emerald-600 font-medium transition cursor-pointer"
-                        >
-                          Mark Answered
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
+                    {f.label}
+                  </button>
                 ))}
-            </div>
-
-            {/* Chat Input Bar */}
-            <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-200 bg-white flex gap-2">
-              <input
-                type="text"
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                placeholder="Ask a question (add ? for AI) or message..."
-                className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 font-medium"
-              />
-              <button
-                type="submit"
-                disabled={!inputMessage.trim()}
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition text-xs font-bold shrink-0 shadow-2xs cursor-pointer active:scale-95"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW 2: RECORDED SESSIONS ARCHIVE */}
-      {activeTab === 'recordings' && (
-        <div className="space-y-6">
-          {/* Newly Recorded Teacher Sessions */}
-          {recordedSessionsList.length > 0 && (
-            <div className="p-5 rounded-2xl bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 border border-rose-200 shadow-xs">
-              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-rose-600 animate-pulse"></span>
-                  <h4 className="text-sm font-black text-slate-900">
-                    የቀረጹዋቸው የቀጥታ ትምህርቶች (Your Live Recorded Classes)
-                  </h4>
-                </div>
-                <span className="text-xs font-bold text-rose-700 bg-rose-100 border border-rose-200 px-3 py-0.5 rounded-full">
-                  {recordedSessionsList.length} ቀረጻዎች ተቀምጠዋል
-                </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {recordedSessionsList.map((rec) => (
-                  <div key={rec.id} className="p-3.5 bg-white rounded-xl border border-rose-200/80 shadow-xs flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-slate-900 truncate">{rec.title}</div>
-                      <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2 mt-1">
-                        <span className="px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 font-sans font-bold text-[10px]">
-                          {rec.subject}
-                        </span>
-                        <span className="flex items-center gap-1 font-semibold">
-                          <Clock className="w-3 h-3 text-rose-500" />
-                          {rec.duration}
-                        </span>
-                        <span>•</span>
-                        <span>{rec.date}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-                      {onNavigateToVideos && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onNavigateToVideos('My Videos', `vid-${rec.id}`);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                          title="በ 'My Videos' ዝርዝር ውስጥ ተመልከት"
-                        >
-                          <Film className="w-3.5 h-3.5 text-sky-600" />
-                          <span>በ My Videos እይ</span>
-                        </button>
-                      )}
-                      <a
-                        href={rec.url}
-                        download={`Live-Session-${rec.id}.webm`}
-                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-xs"
-                        title="ቪዲዮውን ወደ ኮምፒውተር ወይም ስልክ አውርድ (Download)"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">አውርድ</span>
-                      </a>
+            )}
+
+            {/* 4. Sticky Pinned Announcement Banner (if any message is pinned) */}
+            {chatMessages.find((m) => m.isPinned) && (
+              <div className="mx-0 my-2 p-2.5 rounded-2xl bg-amber-50/90 border border-amber-200 text-amber-950 text-xs flex items-start gap-2 shadow-2xs shrink-0 animate-in fade-in">
+                <Pin className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-extrabold text-[10px] uppercase tracking-wider text-amber-900 flex items-center gap-1">
+                      <span>Pinned by Instructor</span>
+                      <span className="text-amber-700">({chatMessages.find((m) => m.isPinned)?.sender})</span>
+                    </span>
+                    {isAuthorizedTeacher && (
                       <button
                         type="button"
-                        onClick={(e) => handleDeleteRecordedSession(rec.id, e)}
-                        className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                        title="ይህን ቀረጻ አጥፋ (Delete Recording)"
+                        onClick={() => handleTogglePinChatMessage(chatMessages.find((m) => m.isPinned)!.id)}
+                        className="text-[10px] text-amber-800 hover:text-amber-950 font-bold underline cursor-pointer"
+                        title="Unpin message"
                       >
-                        <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                        <span className="hidden sm:inline">አጥፋ</span>
+                        Unpin
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-amber-950 font-medium line-clamp-2 mt-0.5 leading-relaxed">
+                    {chatMessages.find((m) => m.isPinned)?.text}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* 5. Messages Feed / Polls / Empty States */}
+            {activeChatTab === 'polls' ? (
+              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    <span className="flex items-center gap-1 text-purple-700 font-extrabold">
+                      <BarChart2 className="w-3.5 h-3.5" />
+                      <span>Classroom Poll</span>
+                    </span>
+                    <span className="text-emerald-700 font-mono">Question 1 of 1</span>
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                    {selectedClass.pollQuestion?.question || 'Which law explains the direction of induced EMF?'}
+                  </h4>
+                  <div className="space-y-2 pt-1">
+                    {(selectedClass.pollQuestion?.options || ['Faraday\'s Law', 'Lenz\'s Law', 'Ampere\'s Law', 'Gauss\'s Law']).map((opt, idx) => {
+                      const isSelected = userVotedPollOption === idx;
+                      const baseVotes = selectedClass.pollQuestion?.votes?.[idx] || [12, 45, 6, 4][idx];
+                      const voteCount = baseVotes + (isSelected ? 1 : 0);
+                      const totalVotes = 67 + (userVotedPollOption !== null ? 1 : 0);
+                      const pct = Math.round((voteCount / totalVotes) * 100);
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => {
+                            setUserVotedPollOption(idx);
+                            triggerToast(`Voted for option ${String.fromCharCode(65 + idx)}: "${opt}"`);
+                          }}
+                          className={`w-full text-left p-3 rounded-xl border text-xs transition relative overflow-hidden flex items-center justify-between cursor-pointer ${
+                            isSelected
+                              ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold shadow-2xs'
+                              : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-800'
+                          }`}
+                        >
+                          <div
+                            className="absolute left-0 top-0 bottom-0 bg-emerald-600/15 pointer-events-none transition-all duration-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                          <span className="relative z-10 flex items-center gap-2">
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
+                              isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                            }`}>
+                              {String.fromCharCode(65 + idx)}
+                            </span>
+                            <span>{opt}</span>
+                          </span>
+                          <span className="relative z-10 font-mono font-bold text-slate-700">
+                            {pct}% ({voteCount})
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                ref={chatScrollContainerRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                  const scrolledUp = distanceToBottom > 80;
+                  setIsUserScrolledUp(scrolledUp);
+                  if (!scrolledUp) setUnreadCount(0);
+                }}
+                className="flex-1 overflow-y-auto py-2.5 space-y-3 pr-1 relative"
+              >
+                {(() => {
+                  let filteredList = chatMessages;
+
+                  // Tab filtering
+                  if (activeChatTab === 'qa') {
+                    filteredList = filteredList.filter((m) => m.isQuestion);
+                    if (qaStatusFilter === 'unanswered') {
+                      filteredList = filteredList.filter((m) => !m.isAnswered);
+                    } else if (qaStatusFilter === 'answered') {
+                      filteredList = filteredList.filter((m) => m.isAnswered);
+                    } else if (qaStatusFilter === 'pinned') {
+                      filteredList = filteredList.filter((m) => m.isPinned);
+                    }
+                  } else if (activeChatTab === 'pending') {
+                    filteredList = filteredList.filter((m) => m.isQuestion && !m.isAnswered);
+                  }
+
+                  // Search filtering
+                  if (chatSearchQuery.trim()) {
+                    const q = chatSearchQuery.toLowerCase();
+                    filteredList = filteredList.filter(
+                      (m) =>
+                        m.text.toLowerCase().includes(q) ||
+                        m.sender.toLowerCase().includes(q) ||
+                        (m.teacherAnswer && m.teacherAnswer.toLowerCase().includes(q))
+                    );
+                  }
+
+                  if (filteredList.length === 0) {
+                    return (
+                      <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center p-6 space-y-2.5 text-slate-400">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-400">
+                          {activeChatTab === 'pending' ? (
+                            <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+                          ) : activeChatTab === 'qa' ? (
+                            <HelpCircle className="w-6 h-6 text-amber-500" />
+                          ) : (
+                            <MessageSquare className="w-6 h-6 text-slate-400" />
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-slate-700">
+                            {activeChatTab === 'pending'
+                              ? 'All questions answered!'
+                              : activeChatTab === 'qa'
+                              ? 'No academic questions yet'
+                              : chatSearchQuery
+                              ? 'No matching messages found'
+                              : 'No messages yet'}
+                          </p>
+                          <p className="text-[11px] text-slate-500 max-w-[260px]">
+                            {activeChatTab === 'pending'
+                              ? 'There are currently no unanswered doubts awaiting the instructor.'
+                              : activeChatTab === 'qa'
+                              ? 'Have a question about this national exam lesson? Use Question mode below to submit your doubt!'
+                              : chatSearchQuery
+                              ? `No results for "${chatSearchQuery}". Try a different keyword.`
+                              : 'Be the first to say hello or ask a question!'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return filteredList.map((msg) => {
+                    const initials = msg.sender
+                      .split(/\s+/)
+                      .map((w) => w[0])
+                      .join('')
+                      .slice(0, 2)
+                      .toUpperCase();
+
+                    const isTeacher = msg.role === 'teacher';
+                    const isAi = msg.role === 'ai_tutor';
+                    const isMod = msg.role === 'moderator';
+
+                    const avatarBg = isTeacher
+                      ? 'bg-slate-900 text-white ring-2 ring-blue-500/30'
+                      : isAi
+                      ? 'bg-purple-600 text-white ring-2 ring-purple-500/30'
+                      : isMod
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-emerald-600 text-white';
+
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`rounded-2xl border transition shadow-2xs p-3 space-y-2 ${
+                          msg.isPinned
+                            ? 'bg-amber-50/40 border-amber-300 ring-1 ring-amber-300/60'
+                            : isTeacher
+                            ? 'bg-blue-50/25 border-blue-200/80 shadow-xs'
+                            : isAi
+                            ? 'bg-purple-50/30 border-purple-200/80'
+                            : msg.isQuestion
+                            ? 'bg-amber-50/20 border-amber-200/70'
+                            : 'bg-white border-slate-200/80 hover:border-slate-300'
+                        }`}
+                      >
+                        {/* Header: Avatar, Name, Role Badges, Timestamp */}
+                        <div className="flex items-start gap-2.5">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${avatarBg}`}>
+                            {isAi ? '🤖' : initials}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1 flex-wrap">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-xs text-slate-900">{msg.sender}</span>
+
+                                {/* Role Badges */}
+                                {isTeacher ? (
+                                  <span className="bg-slate-900 text-blue-300 border border-blue-400/30 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                                    <Shield className="w-2.5 h-2.5 text-blue-400" />
+                                    <span>Instructor</span>
+                                  </span>
+                                ) : isAi ? (
+                                  <span className="bg-purple-700 text-purple-100 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                                    <Sparkles className="w-2.5 h-2.5 text-purple-300" />
+                                    <span>AI Study Assistant</span>
+                                  </span>
+                                ) : isMod ? (
+                                  <span className="bg-amber-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                                    Moderator
+                                  </span>
+                                ) : (
+                                  <span className="bg-slate-100 text-slate-600 text-[9px] font-semibold px-1.5 py-0.5 rounded-full">
+                                    Student
+                                  </span>
+                                )}
+
+                                {/* Question & Resolution Badges */}
+                                {msg.isQuestion && (
+                                  <span className="bg-amber-100 text-amber-900 border border-amber-300/80 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                                    <HelpCircle className="w-2.5 h-2.5 text-amber-700" />
+                                    <span>Academic Question</span>
+                                  </span>
+                                )}
+
+                                {msg.isQuestion && (
+                                  msg.isAnswered ? (
+                                    <span className="bg-emerald-100 text-emerald-900 border border-emerald-300/80 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" />
+                                      <span>Answered by Instructor</span>
+                                    </span>
+                                  ) : (
+                                    <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                                      <Clock className="w-2.5 h-2.5 text-amber-600" />
+                                      <span>Pending Review</span>
+                                    </span>
+                                  )
+                                )}
+                              </div>
+
+                              <span className="text-[10px] text-slate-400 font-mono ml-auto shrink-0">
+                                {msg.timestamp}
+                              </span>
+                            </div>
+
+                            {/* Replying To Quote Block (if exists) */}
+                            {msg.replyTo && (
+                              <div className="mt-1 p-1.5 px-2 rounded-lg bg-slate-100/90 border border-slate-200/80 text-[11px] text-slate-600 flex items-center gap-1.5">
+                                <CornerDownRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span className="font-bold text-slate-800">@{msg.replyTo.sender}:</span>
+                                <span className="truncate italic">"{msg.replyTo.text}"</span>
+                              </div>
+                            )}
+
+                            {/* Main Message Text */}
+                            <p className="text-xs sm:text-[13px] text-slate-800 leading-relaxed font-normal break-words mt-1 whitespace-pre-wrap">
+                              {msg.text}
+                            </p>
+
+                            {/* File Attachment preview (if attached) */}
+                            {msg.attachmentName && (
+                              <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-700 font-mono shadow-2xs">
+                                <Paperclip className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="truncate max-w-[200px] font-bold">{msg.attachmentName}</span>
+                              </div>
+                            )}
+
+                            {/* Official Instructor Answer Block (if question has been answered) */}
+                            {msg.teacherAnswer && (
+                              <div className="mt-2.5 p-3 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border border-emerald-200 text-xs shadow-2xs space-y-1.5">
+                                <div className="flex items-center justify-between text-[10px] font-bold text-emerald-900 uppercase tracking-wider">
+                                  <span className="flex items-center gap-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Official Answer from {msg.answeredBy || 'Instructor'}</span>
+                                  </span>
+                                  {msg.answeredAt && <span className="text-slate-500 font-mono font-normal">{msg.answeredAt}</span>}
+                                </div>
+                                <p className="text-xs text-slate-900 leading-relaxed font-medium whitespace-pre-wrap">
+                                  {msg.teacherAnswer}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Teacher Inline Answering Form (active when teacher clicks 'Answer') */}
+                            {isAuthorizedTeacher && answeringQuestionId === msg.id && (
+                              <div className="mt-2.5 p-3 rounded-xl bg-slate-900 text-white text-xs space-y-2 border border-emerald-500/50 shadow-md animate-in fade-in">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-emerald-400 text-xs flex items-center gap-1">
+                                    <Shield className="w-3.5 h-3.5" />
+                                    <span>Answer Student Question</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setAnsweringQuestionId(null)}
+                                    className="text-slate-400 hover:text-white text-xs cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                                <textarea
+                                  value={teacherAnswerText}
+                                  onChange={(e) => setTeacherAnswerText(e.target.value)}
+                                  placeholder="Type the official academic explanation or exam formula for this student..."
+                                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 resize-none h-20"
+                                />
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setAnsweringQuestionId(null)}
+                                    className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAnswerQuestionSubmit(msg.id, teacherAnswerText)}
+                                    disabled={!teacherAnswerText.trim()}
+                                    className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-bold transition cursor-pointer shadow-xs"
+                                  >
+                                    Publish Answer
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Message Actions Row: Reactions, Reply, Moderation */}
+                            <div className="flex items-center justify-between gap-2 mt-2 pt-1 border-t border-slate-100/80 flex-wrap">
+                              {/* Left: Reactions & Reply */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {/* Upvote/Like Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendReaction(msg.id, '👍')}
+                                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200/80 transition cursor-pointer text-[11px] font-bold"
+                                  title="Upvote or react"
+                                >
+                                  <ThumbsUp className="w-3 h-3 text-emerald-600" />
+                                  <span>{msg.upvotes || 0}</span>
+                                </button>
+
+                                {/* Emoji Reaction Chips */}
+                                {msg.reactions &&
+                                  Object.entries(msg.reactions).map(([emo, count]) => {
+                                    if (!count || emo === '👍') return null;
+                                    return (
+                                      <button
+                                        key={emo}
+                                        type="button"
+                                        onClick={() => handleSendReaction(msg.id, emo)}
+                                        className="px-1.5 py-0.5 rounded-md bg-slate-50 hover:bg-slate-100 border border-slate-200/70 text-[11px] font-bold flex items-center gap-0.5 cursor-pointer"
+                                      >
+                                        <span>{emo}</span>
+                                        <span className="text-[10px] text-slate-600">{count}</span>
+                                      </button>
+                                    );
+                                  })}
+
+                                {/* Reply Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReplyingTo(msg);
+                                    setInputMessage(`@${msg.sender} `);
+                                  }}
+                                  className="flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900 font-bold transition cursor-pointer px-1.5 py-0.5 rounded-md hover:bg-slate-100"
+                                >
+                                  <Reply className="w-3 h-3 text-slate-500" />
+                                  <span>Reply</span>
+                                </button>
+                              </div>
+
+                              {/* Right: Teacher Controls & Student Delete */}
+                              <div className="flex items-center gap-1.5 ml-auto">
+                                {/* Teacher: Answer Button */}
+                                {isAuthorizedTeacher && msg.isQuestion && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAnsweringQuestionId(msg.id);
+                                      setTeacherAnswerText(msg.teacherAnswer || '');
+                                    }}
+                                    className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-[10px] font-bold transition cursor-pointer"
+                                    title="Write teacher answer"
+                                  >
+                                    ✍️ {msg.isAnswered ? 'Edit Answer' : 'Answer Question'}
+                                  </button>
+                                )}
+
+                                {/* Teacher: Toggle Resolved */}
+                                {isAuthorizedTeacher && msg.isQuestion && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleAnswered(msg.id, msg.isAnswered)}
+                                    className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold transition cursor-pointer ${
+                                      msg.isAnswered
+                                        ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                                        : 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                                    }`}
+                                  >
+                                    {msg.isAnswered ? 'Mark Pending' : '✓ Resolve'}
+                                  </button>
+                                )}
+
+                                {/* Teacher: Pin */}
+                                {isAuthorizedTeacher && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTogglePinChatMessage(msg.id)}
+                                    className={`p-1 rounded-lg border text-[11px] transition cursor-pointer ${
+                                      msg.isPinned
+                                        ? 'bg-amber-100 border-amber-300 text-amber-900 font-bold'
+                                        : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-900'
+                                    }`}
+                                    title={msg.isPinned ? 'Unpin message' : 'Pin message to top'}
+                                  >
+                                    <Pin className="w-3 h-3" />
+                                  </button>
+                                )}
+
+                                {/* Delete Control: Allowed for Teacher or Message Author */}
+                                {(isAuthorizedTeacher || msg.userId === currentUser?.id) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteChatMessage(msg.id)}
+                                    className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                    title="Delete message"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+
+                <div ref={chatBottomRef} />
+              </div>
+            )}
+
+            {/* Floating 'New Messages' Pill (visible when user scrolled up) */}
+            {isUserScrolledUp && unreadCount > 0 && (
+              <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-20 animate-in fade-in slide-in-from-bottom-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    setUnreadCount(0);
+                    setIsUserScrolledUp(false);
+                  }}
+                  className="px-3.5 py-1.5 rounded-full bg-slate-900 text-white text-xs font-bold shadow-lg flex items-center gap-1.5 hover:bg-slate-800 transition active:scale-95 cursor-pointer"
+                >
+                  <ChevronDown className="w-3.5 h-3.5 text-emerald-400 animate-bounce" />
+                  <span>{unreadCount} New Message{unreadCount > 1 ? 's' : ''}</span>
+                </button>
+              </div>
+            )}
+
+            {/* 6. Professional Message Composer & Interactive Question Submission Form */}
+            <div className="mt-auto pt-2.5 border-t border-slate-100 shrink-0 space-y-2">
+              {/* Replying To Quote Banner */}
+              {replyingTo && (
+                <div className="p-1.5 px-3 rounded-xl bg-slate-100 border border-slate-200 text-xs flex items-center justify-between gap-2 shadow-2xs animate-in fade-in">
+                  <div className="flex items-center gap-1.5 min-w-0 text-slate-700">
+                    <CornerDownRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span className="font-bold text-slate-900">Replying to @{replyingTo.sender}:</span>
+                    <span className="truncate italic text-[11px]">"{replyingTo.text.slice(0, 75)}"</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo(null)}
+                    className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer shrink-0"
+                    title="Cancel reply"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Mode Switcher & Quick Academic Doubts Toolbar */}
+              <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Academic Question Mode Toggle Switch */}
+                  <button
+                    type="button"
+                    onClick={() => setIsQuestionMode(!isQuestionMode)}
+                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                      isQuestionMode
+                        ? 'bg-amber-500 text-white ring-2 ring-amber-300'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200'
+                    }`}
+                    title="Toggle Academic Question Mode to highlight question for instructor and Q&A panel"
+                  >
+                    <HelpCircle className="w-3 h-3" />
+                    <span>{isQuestionMode ? 'Question Mode Active' : 'Ask Academic Question'}</span>
+                  </button>
+
+                  {/* High-Yield Doubt Prompt Chips */}
+                  <button
+                    type="button"
+                    onClick={() => handleQuickDoubtPrompt('Please explain this concept again:')}
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-semibold transition cursor-pointer"
+                  >
+                    Explain again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickDoubtPrompt('What is the formula step for:')}
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-semibold transition cursor-pointer"
+                  >
+                    Formula step
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickDoubtPrompt('Can you provide an exam example for:')}
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-semibold transition cursor-pointer"
+                  >
+                    Exam example
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputMessage('Understood, thank you!')}
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-semibold transition cursor-pointer"
+                  >
+                    Understood!
+                  </button>
+                </div>
+
+                {/* Instant Emoji Reaction Shortcuts */}
+                <div className="flex items-center gap-1">
+                  {['👍', '👏', '💡', '❤️', '✋'].map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      onClick={() => handleInsertEmoji(em)}
+                      className="w-6 h-6 rounded-md hover:bg-slate-100 flex items-center justify-center text-xs transition cursor-pointer active:scale-90"
+                      title={`Insert ${em}`}
+                    >
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Active File Attachment Chip (if attached) */}
+              {chatAttachment && (
+                <div className="p-1.5 px-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center justify-between gap-2 shadow-2xs animate-in fade-in">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Paperclip className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="font-bold truncate text-[11px]">{chatAttachment.name}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setChatAttachment(null)}
+                    className="text-slate-400 hover:text-rose-600 transition p-0.5 cursor-pointer shrink-0"
+                    title="Remove attachment"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Main Composer Form: Multiline Textarea + Controls */}
+              <form onSubmit={handleSendMessage} className="space-y-1.5">
+                <div className={`p-2 rounded-2xl flex flex-col gap-1.5 shadow-2xs transition border ${
+                  isQuestionMode
+                    ? 'bg-amber-50/40 border-amber-300 ring-2 ring-amber-400/20'
+                    : 'bg-slate-50/90 border-slate-200/90 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20'
+                }`}>
+                  {/* Multiline Question / Message Input */}
+                  <textarea
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    rows={isQuestionMode ? 2 : 1}
+                    maxLength={500}
+                    placeholder={
+                      isQuestionMode
+                        ? 'Type your academic question or doubt in detail for the instructor...'
+                        : 'Type your message or ask a question...'
+                    }
+                    className="w-full bg-transparent border-0 text-xs sm:text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none font-medium resize-none leading-relaxed"
+                  />
+
+                  {/* Composer Bottom Row: Attachments, Emojis, Counter, Send */}
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/50">
+                    <div className="flex items-center gap-1.5">
+                      {/* Attachment Button */}
+                      <button
+                        type="button"
+                        onClick={() => chatAttachmentInputRef.current?.click()}
+                        className="text-slate-400 hover:text-emerald-700 transition p-1 rounded-lg hover:bg-slate-200/50 cursor-pointer flex items-center gap-1 text-[11px] font-semibold"
+                        title="Attach diagram, formula screenshot, or notes"
+                      >
+                        <Paperclip className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Attach</span>
+                      </button>
+
+                      {/* Emoji Picker Button */}
+                      <button
+                        type="button"
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className="text-slate-400 hover:text-slate-700 transition p-1 rounded-lg hover:bg-slate-200/50 cursor-pointer"
+                        title="Open emoji palette"
+                      >
+                        <Smile className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Keyboard Hint */}
+                      <span className="text-[10px] text-slate-400 hidden sm:inline font-mono">
+                        ↵ Enter to send
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* Character Counter */}
+                      <span className={`text-[10px] font-mono ${
+                        inputMessage.length > 450 ? 'text-rose-600 font-bold' : 'text-slate-400'
+                      }`}>
+                        {inputMessage.length}/500
+                      </span>
+
+                      {/* Send Button */}
+                      <button
+                        type="submit"
+                        disabled={(!inputMessage.trim() && !chatAttachment) || isSubmittingChat}
+                        className={`text-white font-bold text-xs px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs transition active:scale-95 cursor-pointer shrink-0 disabled:opacity-40 ${
+                          isQuestionMode
+                            ? 'bg-amber-600 hover:bg-amber-700 disabled:hover:bg-amber-600'
+                            : 'bg-emerald-600 hover:bg-emerald-700 disabled:hover:bg-emerald-600'
+                        }`}
+                      >
+                        {isQuestionMode ? (
+                          <HelpCircle className="w-3.5 h-3.5" />
+                        ) : (
+                          <Send className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {isSubmittingChat
+                            ? 'Submitting...'
+                            : isQuestionMode
+                            ? 'Submit Question'
+                            : 'Send'}
+                        </span>
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              </form>
+
+              {/* Emoji Palette (if open) */}
+              {showEmojiPicker && (
+                <div className="p-2 bg-white rounded-xl border border-slate-200 shadow-lg flex items-center gap-1.5 flex-wrap animate-in fade-in slide-in-from-bottom-2">
+                  {['😀', '😂', '🔥', '👏', '🙌', '💡', '❓', '✅', '📚', '🎯', '💯', '⭐'].map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      onClick={() => handleInsertEmoji(em)}
+                      className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-sm transition cursor-pointer active:scale-90"
+                    >
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-
-          <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-emerald-600" />
-            <span>Recorded Live Lessons & Ethiopian Exam Class Archives</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {liveClasses.map((cls) => (
-              <div
-                key={cls.id}
-                className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-xs hover:border-emerald-300 transition flex flex-col justify-between"
-              >
-                <div className="p-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-                      {cls.subject}
-                    </span>
-                    <span className="text-xs font-mono text-slate-500 flex items-center gap-1 font-medium">
-                      <Clock className="w-3.5 h-3.5" />
-                      {cls.recordingDuration || '1h 15m'}
-                    </span>
-                  </div>
-
-                  <h4 className="text-base font-bold text-slate-900 leading-snug">
-                    {cls.title}
-                  </h4>
-
-                  <p className="text-xs text-slate-500 line-clamp-2">
-                    {cls.currentTopic}
-                  </p>
-
-                  <div className="flex items-center gap-2.5 pt-2">
-                    <img
-                      src={cls.teacherAvatar}
-                      alt={cls.teacherName}
-                      className="w-8 h-8 rounded-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div>
-                      <div className="text-xs font-bold text-slate-900">{cls.teacherName}</div>
-                      <div className="text-[10px] text-slate-500">{cls.teacherTitle}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-                  <button
-                    onClick={() => {
-                      onSelectClass(cls.id);
-                      setActiveTab('live_room');
-                      if (cls.youtubeId) {
-                        setStageMode('video');
-                      } else {
-                        setStageMode('slides');
-                      }
-                    }}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-95"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-white" />
-                    <span>Watch Session</span>
-                  </button>
-                  <span className="text-xs text-slate-500 font-medium">
-                    {cls.slides.length} Slides • {cls.currentViewers} Viewers
-                  </span>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
-      )}
+      </div>
+    )
+  )}
 
-      {/* MODAL: TEACHER START CLASS (አዲስ ላይቭ ክላስ ማሰራጫ) */}
-      {showStartModal && (
+
+
+      {/* MODAL: TEACHER START CLASS (አዲስ ላይቭ ክላስ ማሰራጫ - Teachers/Admin Only) */}
+      {isAuthorizedTeacher && showStartModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+              <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                 <Radio className="w-5 h-5 text-red-600 animate-pulse" />
-                <span>Broadcast Live Class (መምህር: ላይቭ ክላስ ጀምር)</span>
+                <span>{isAm ? 'አዲስ የቀጥታ ክፍለ-ጊዜ (Live Class Form)' : 'Create or Schedule Live Class'}</span>
               </h3>
               <button
                 onClick={() => setShowStartModal(false)}
@@ -5804,6 +7287,40 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             </div>
 
             <form onSubmit={handleTeacherStartClass} className="space-y-3.5">
+              {/* Teacher Assignment Indicator */}
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
+                <span>{isAm ? 'የመምህር ሁኔታ:' : 'Instructor Status:'}</span>
+                <span className="font-bold text-slate-800">
+                  {currentUser?.role === 'teacher' && currentUser?.name
+                    ? currentUser.name
+                    : (isAm ? '⚪ መምህር አልተመደበም (ክፍት ክፍለ-ጊዜ)' : '⚪ No Teacher Assigned')}
+                </span>
+              </div>
+
+              {/* Mode Toggle: Go Live Now vs Schedule for Later */}
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setStartAsLive(true)}
+                  className={`py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    startAsLive ? 'bg-red-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                  <span>{isAm ? '🔴 የቀጥታ ስርጭት ጀምር' : '🔴 Broadcast Live'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStartAsLive(false)}
+                  className={`py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    !startAsLive ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{isAm ? '📅 መርሃ-ግብር ብቻ መዝግብ' : '📅 Schedule Only'}</span>
+                </button>
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   Class Title *
@@ -5828,6 +7345,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                     onChange={(e) => setNewClassSubject(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-emerald-500 font-medium"
                   >
+                    {currentUser?.teachingSubject &&
+                      !['Physics', 'Mathematics', 'Chemistry', 'Biology', 'English', 'Geography', 'History', 'Economics', 'Computer Science', 'Law'].includes(currentUser.teachingSubject) && (
+                        <option value={currentUser.teachingSubject}>{currentUser.teachingSubject}</option>
+                      )}
                     <option value="Physics">Physics</option>
                     <option value="Mathematics">Mathematics</option>
                     <option value="Chemistry">Chemistry</option>
@@ -5871,20 +7392,85 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  YouTube Live or Video Stream URL (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={newClassYoutube}
-                  onChange={(e) => setNewClassYoutube(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=... or YouTube Video ID"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-emerald-500 font-medium"
-                />
-                <span className="text-[11px] text-slate-400 block mt-1">
-                  If left empty, the class will automatically launch with the interactive digital whiteboard and webcam broadcast.
-                </span>
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    {isAm ? 'የሰሩትን ቪዲዮ ይጫኑ (አማራጭ - MP4 / WebM / MOV)' : 'Upload Pre-Recorded Lesson Video (Optional)'}
+                  </label>
+                  <input
+                    ref={startModalVideoInputRef}
+                    type="file"
+                    accept="video/*,.mp4,.webm,.mov,.ogg,.m4v"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      const looksLikeVideo =
+                        f.type.startsWith('video/') || /\.(mp4|webm|mov|ogg|ogv|m4v)$/i.test(f.name);
+                      if (!looksLikeVideo) {
+                        triggerToast(isAm ? 'እባክዎ ትክክለኛ የቪዲዮ ፋይል ይምረጡ' : 'Please select a valid video file');
+                        return;
+                      }
+                      if (newClassVideoPreviewUrl && newClassVideoPreviewUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(newClassVideoPreviewUrl);
+                      }
+                      setNewClassVideoFile(f);
+                      setNewClassVideoPreviewUrl(URL.createObjectURL(f));
+                    }}
+                    className="hidden"
+                  />
+
+                  {newClassVideoFile ? (
+                    <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Film className="w-4 h-4 text-sky-700 shrink-0" />
+                        <span className="font-bold text-slate-900 truncate">{newClassVideoFile.name}</span>
+                        <span className="text-[11px] text-slate-500 shrink-0">
+                          ({(newClassVideoFile.size / (1024 * 1024)).toFixed(1)} MB)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewClassVideoFile(null);
+                          if (newClassVideoPreviewUrl?.startsWith('blob:')) {
+                            URL.revokeObjectURL(newClassVideoPreviewUrl);
+                          }
+                          setNewClassVideoPreviewUrl(null);
+                        }}
+                        className="text-rose-600 font-bold hover:underline cursor-pointer shrink-0"
+                      >
+                        {isAm ? 'አስወግድ' : 'Remove'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startModalVideoInputRef.current?.click()}
+                      className="w-full py-2.5 px-3 rounded-xl border border-dashed border-sky-300 bg-sky-50/40 hover:bg-sky-50 text-sky-800 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>{isAm ? 'የትምህርት ቪዲዮ ከመሳሪያ ይምረጡ (MP4, WebM, MOV)' : 'Select Pre-Recorded Video File (MP4, WebM, MOV)'}</span>
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    YouTube Live or Video Stream URL (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newClassYoutube}
+                    onChange={(e) => setNewClassYoutube(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=... or YouTube Video ID"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-emerald-500 font-medium"
+                  />
+                  <span className="text-[11px] text-slate-400 block mt-1">
+                    {isAm
+                      ? 'ቪዲዮ ካልተመረጠ፣ ክፍሉ በዲጂታል ሰሌዳና በካሜራ ስርጭት ይከፈታል።'
+                      : 'If neither video file nor YouTube URL is set, class starts with interactive whiteboard and camera broadcast.'}
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
@@ -5893,14 +7479,29 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                   onClick={() => setShowStartModal(false)}
                   className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
                 >
-                  Cancel
+                  {isAm ? 'ሰርዝ' : 'Cancel'}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
+                  disabled={isUploadingNewClassVideo}
+                  className={`px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-60 ${
+                    startAsLive ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-700 hover:bg-emerald-800'
+                  }`}
                 >
-                  <Radio className="w-4 h-4" />
-                  <span>Go Live Now (ስርጭት ጀምር)</span>
+                  {isUploadingNewClassVideo ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : startAsLive ? (
+                    <Radio className="w-4 h-4" />
+                  ) : (
+                    <Clock className="w-4 h-4" />
+                  )}
+                  <span>
+                    {isUploadingNewClassVideo
+                      ? (isAm ? 'ቪዲዮ በመጫን ላይ...' : 'Uploading Video...')
+                      : startAsLive
+                        ? (isAm ? 'ስርጭት ጀምር' : 'Go Live Now')
+                        : (isAm ? 'መርሃ-ግብር መዝግብ' : 'Save Schedule')}
+                  </span>
                 </button>
               </div>
             </form>
@@ -5908,7 +7509,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         </div>
       )}
 
-      {/* MODAL: ATTENDEES & RAISED HANDS (ተማሪዎች እና የተነሱ እጆች) */}
+      {/* MODAL: ATTENDEES & RAISED HANDS */}
       {showAttendeesModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-5 space-y-4 shadow-xl">
@@ -5916,7 +7517,9 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-emerald-600" />
                 <h4 className="text-sm font-bold text-slate-900">
-                  ተሳታፊዎች / የተገናኙ ሰዎች ({Math.max(1, onlineParticipants.length)} Live Attendees)
+                  {isAm
+                    ? `ተሳታፊዎች (${onlineParticipants.length})`
+                    : `Live Attendees (${onlineParticipants.length})`}
                 </h4>
               </div>
               <button
@@ -5928,24 +7531,47 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             </div>
 
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1 text-xs">
-              {/* Host / Presenter */}
-              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white font-black text-xs">
-                    {(liveBroadcasterInfo?.teacherName || selectedClass.teacherName || 'T').charAt(0)}
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                      <span>{liveBroadcasterInfo?.teacherName || selectedClass.teacherName}</span>
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              {/* Host / Presenter Status */}
+              {liveBroadcasterInfo?.teacherName || (selectedClass.teacherName && !selectedClass.teacherName.includes('መምህር አልተመደበም') && !selectedClass.teacherName.toLowerCase().includes('no teacher') && !selectedClass.teacherName.toLowerCase().includes('pending')) ? (
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white font-black text-xs">
+                      {(liveBroadcasterInfo?.teacherName || selectedClass.teacherName).charAt(0)}
                     </div>
-                    <div className="text-[10px] text-emerald-700 font-medium">Instructor (Host / Presenter)</div>
+                    <div>
+                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <span>{liveBroadcasterInfo?.teacherName || selectedClass.teacherName}</span>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      </div>
+                      <div className="text-[10px] text-emerald-700 font-medium">
+                        {isAm ? 'መምህር - አስተናጋጅ' : 'Instructor - Host'}
+                      </div>
+                    </div>
                   </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-600 text-white">
+                    {isAm ? 'መምህር' : 'Teacher'}
+                  </span>
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-600 text-white">
-                  Teacher
-                </span>
-              </div>
+              ) : (
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                      ⚪
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 text-xs">
+                        {isAm ? 'መምህር አልተመደበም' : 'No teacher assigned yet'}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {isAm ? 'ይህ ክፍል መምህር በመጠባበቅ ላይ ነው' : 'Session is awaiting assigned instructor'}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-600">
+                    {isAm ? 'መምህር ይጠበቃል' : 'Pending'}
+                  </span>
+                </div>
+              )}
 
               {/* Raised hand student (if active) */}
               {isHandRaised && (
@@ -5953,12 +7579,14 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-lg">✋</span>
                     <div>
-                      <div className="font-bold text-slate-900">{currentUser?.name || 'You (Student)'}</div>
-                      <div className="text-[10px] text-amber-800 font-bold">Waiting to ask instructor</div>
+                      <div className="font-bold text-slate-900">{currentUser?.name || (isAm ? 'እርስዎ' : 'You')}</div>
+                      <div className="text-[10px] text-amber-800 font-bold">
+                        {isAm ? 'መምህሩን ለመጠየቅ በመጠባበቅ ላይ' : 'Waiting to ask instructor'}
+                      </div>
                     </div>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-400 text-slate-950">
-                    Hand Raised
+                    {isAm ? 'እጅ ተነስቷል' : 'Hand Raised'}
                   </span>
                 </div>
               )}
@@ -5966,7 +7594,9 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
               {/* REAL Active Connected Live Participants */}
               <div className="pt-2 border-t border-slate-100 space-y-1.5">
                 <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1">
-                  በክፍሉ ውስጥ ያሉ ሰዎች (Connected In This Room — {onlineParticipants.length})
+                  {isAm
+                    ? `በክፍሉ ውስጥ ያሉ ሰዎች (${onlineParticipants.length})`
+                    : `Connected In This Room (${onlineParticipants.length})`}
                 </div>
 
                 {onlineParticipants.length > 0 ? (
@@ -5991,31 +7621,31 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                               <span>{p.name}</span>
                               {isMe && (
                                 <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-700 text-white font-black">
-                                  እርስዎ (You)
+                                  {isAm ? 'እርስዎ' : 'You'}
                                 </span>
                               )}
                               {isHost && (
                                 <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-700 text-white font-black">
-                                  🔴 Broadcaster
+                                  🔴 {isAm ? 'አስተማሪ' : 'Broadcaster'}
                                 </span>
                               )}
                             </div>
                             <div className="text-[10px] text-slate-500">
-                              {p.role === 'teacher' ? '👨‍🏫 መምህር' : '👨‍🎓 ተማሪ'} • አሁን በቀጥታ ክፍል ውስጥ ይገኛል
+                              {p.role === 'teacher' ? (isAm ? '👨‍🏫 መምህር' : '👨‍🏫 Teacher') : (isAm ? '👨‍🎓 ተማሪ' : '👨‍🎓 Student')} • {isAm ? 'አሁን በቀጥታ ክፍል ውስጥ ይገኛል' : 'Currently in live room'}
                             </div>
                           </div>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                           p.role === 'teacher' ? 'bg-purple-100 text-purple-800' : 'bg-slate-200 text-slate-700'
                         }`}>
-                          {p.role === 'teacher' ? 'Teacher' : 'Student'}
+                          {p.role === 'teacher' ? (isAm ? 'መምህር' : 'Teacher') : (isAm ? 'ተማሪ' : 'Student')}
                         </span>
                       </div>
                     );
                   })
                 ) : (
                   <div className="p-3 text-center text-slate-400 text-xs">
-                    እስካሁን ሌላ ሰው አልተቀላቀለም (No other students connected yet)
+                    {isAm ? 'እስካሁን ሌላ ሰው አልተቀላቀለም' : 'No other students connected yet'}
                   </div>
                 )}
               </div>
@@ -6026,14 +7656,86 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 onClick={() => setShowAttendeesModal(false)}
                 className="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
               >
-                Close (ዝጋ)
+                {isAm ? 'ዝጋ' : 'Close'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: ADD CUSTOM SLIDE (አዲስ ስላይድ ጨምር) */}
+      {/* MODAL: IN-CLASSROOM AUTHENTIC DOCUMENT VIEWER */}
+      {viewingClassDocument && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border border-slate-200 p-6 space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-base font-black text-slate-900 leading-snug">
+                    {viewingClassDocument.title}
+                  </h4>
+                  <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 flex-wrap">
+                    <span className="font-semibold text-emerald-700">{viewingClassDocument.subject}</span>
+                    <span>•</span>
+                    <span>{viewingClassDocument.chapter}</span>
+                    <span>•</span>
+                    <span>{viewingClassDocument.pages} pages</span>
+                    <span>•</span>
+                    <span>{viewingClassDocument.fileSize}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setViewingClassDocument(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-800 font-mono whitespace-pre-wrap leading-relaxed text-[11px] select-text">
+                {viewingClassDocument.fullExcerpt}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <a
+                  href={`data:text/plain;charset=utf-8,${encodeURIComponent(viewingClassDocument.fullExcerpt)}`}
+                  download={`${viewingClassDocument.title.replace(/\.pdf$/, '')}_Notes.txt`}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{isAm ? 'ሰነዱን አውርድ' : 'Download Document'}</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const title = viewingClassDocument.title;
+                    setViewingClassDocument(null);
+                    onOpenDocument(title);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{isAm ? 'በሰነዶች ማውጫ ክፈት' : 'Open in Library'}</span>
+                </button>
+              </div>
+              <button
+                onClick={() => setViewingClassDocument(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+              >
+                {isAm ? 'ዝጋ' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADD CUSTOM SLIDE */}
       {showAddSlideModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 p-6 space-y-4 shadow-2xl">
@@ -6041,7 +7743,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
               <div className="flex items-center gap-2">
                 <Plus className="w-5 h-5 text-emerald-600" />
                 <h4 className="text-base font-black text-slate-900">
-                  አዲስ የትምህርት ስላይድ ጨምር (Add PPT Slide)
+                  {isAm ? 'አዲስ የትምህርት ስላይድ ጨምር' : 'Add Lesson Slide'}
                 </h4>
               </div>
               <button
@@ -6055,39 +7757,39 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             <div className="space-y-3.5 text-xs">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  የስላይዱ ርዕስ (Slide Title) *
+                  {isAm ? 'የስላይዱ ርዕስ *' : 'Slide Title *'}
                 </label>
                 <input
                   type="text"
                   value={newSlideTitle}
                   onChange={(e) => setNewSlideTitle(e.target.value)}
-                  placeholder="ምሳሌ፦ Electromagnetic Induction - Faraday's Law"
+                  placeholder={isAm ? "ምሳሌ፦ Electromagnetic Induction - Faraday's Law" : "e.g. Electromagnetic Induction - Faraday's Law"}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ዋና ዋና ነጥቦች (Bullet Points — በእያንዳንዱ መስመር አንድ ነጥብ)
+                  {isAm ? 'ዋና ዋና ነጥቦች - በየመስመሩ አንድ ነጥብ' : 'Bullet Points - one per line'}
                 </label>
                 <textarea
                   rows={4}
                   value={newSlideBullets}
                   onChange={(e) => setNewSlideBullets(e.target.value)}
-                  placeholder="• ማግኔቲክ ፍላክስ ለውጥ የኤሌክትሪክ ቮልቴጅ ያመነጫል&#10;• የሌንዝ ህግ የመግነጢሳዊ መስኩን አቅጣጫ ይወስናል&#10;• በፈተና ላይ የሚመጡ የተለመዱ ስሌቶች"
+                  placeholder={isAm ? "• ማግኔቲክ ፍላክስ ለውጥ የኤሌክትሪክ ቮልቴጅ ያመነጫል\n• የሌንዝ ህግ የመግነጢሳዊ መስኩን አቅጣጫ ይወስናል\n• በፈተና ላይ የሚመጡ የተለመዱ ስሌቶች" : "• Magnetic flux change induces electromotive force\n• Lenz's law determines the induced direction\n• High-yield calculation patterns"}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-sans"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  አስፈላጊ ፎርሙላ ወይም ጥቅስ (High-Yield Formula)
+                  {isAm ? 'አስፈላጊ ፎርሙላ ወይም ማስታወሻ' : 'Important Formula or Note'}
                 </label>
                 <input
                   type="text"
                   value={newSlideFormula}
                   onChange={(e) => setNewSlideFormula(e.target.value)}
-                  placeholder="ምሳሌ፦ ε = -N · (ΔΦ / Δt)"
+                  placeholder={isAm ? "ምሳሌ፦ ε = -N · (ΔΦ / Δt)" : "e.g. ε = -N · (ΔΦ / Δt)"}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 font-mono text-emerald-700 font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
@@ -6099,7 +7801,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 onClick={() => setShowAddSlideModal(false)}
                 className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
               >
-                ሰርዝ (Cancel)
+                {isAm ? 'ሰርዝ' : 'Cancel'}
               </button>
               <button
                 type="button"
@@ -6107,7 +7809,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
               >
                 <Plus className="w-4 h-4" />
-                <span>ስላይዱን ጨምር (Add Slide)</span>
+                <span>{isAm ? 'ስላይዱን ጨምር' : 'Add Slide'}</span>
               </button>
             </div>
           </div>
@@ -6125,10 +7827,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 </div>
                 <div>
                   <h4 className="text-base font-black text-slate-900">
-                    የቀረጻ ይዘት ምርጫ (Recording Source)
+                    {isAm ? 'የቀረጻ ይዘት ምርጫ' : 'Recording Source Selection'}
                   </h4>
                   <p className="text-[11px] text-slate-500">
-                    ትምህርቱን ሲቀዱ ምን ይዘት እንዲቀረጽ ይፈልጋሉ?
+                    {isAm ? 'ትምህርቱን ሲቀዱ ምን ይዘት እንዲቀረጽ ይፈልጋሉ?' : 'Select what you want to capture during class'}
                   </p>
                 </div>
               </div>
@@ -6147,7 +7849,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 onClick={() => {
                   setRecordSource('stage_composite');
                   setShowRecordSourceModal(false);
-                  triggerToast('✅ የቀረጻ ምንጭ ወደ "ስላይድ + የመምህር ፊት" ተቀይሯል!');
+                  triggerToast(isAm ? '✅ የቀረጻ ምንጭ ወደ "ስላይድ + የመምህር ፊት" ተቀይሯል!' : '✅ Record source set to "Slides + Teacher Face"');
                 }}
                 className={`w-full text-left p-3.5 rounded-xl border transition cursor-pointer flex items-start gap-3 ${
                   recordSource === 'stage_composite'
@@ -6162,13 +7864,19 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs text-slate-900">🎓 ስላይድ + የመምህሩ ፊትና ድምፅ (የሚመከር)</span>
+                    <span className="font-bold text-xs text-slate-900">
+                      {isAm ? '🎓 ስላይድ + የመምህሩ ፊትና ድምፅ' : '🎓 Slides + Teacher Face & Voice'}
+                    </span>
                     {recordSource === 'stage_composite' && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold">የተመረጠ</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold">
+                        {isAm ? 'የተመረጠ' : 'Selected'}
+                      </span>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                    PPT ስላይዶቹን ሲያስረዱ፣ በስላይዱ ላይ የሚጽፉትን የቦርድ ማስታወሻ እና የፊትዎን ቪዲዮ አጣምሮ ይቀርጻል።
+                    {isAm
+                      ? 'PPT ስላይዶቹን ሲያስረዱ፣ በስላይዱ ላይ የሚጽፉትን የቦርድ ማስታወሻ እና የፊትዎን ቪዲዮ አጣምሮ ይቀርጻል።'
+                      : 'Records your PowerPoint slides, digital whiteboard ink notes, and webcam video simultaneously.'}
                   </p>
                 </div>
               </button>
@@ -6179,7 +7887,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 onClick={() => {
                   setRecordSource('screen');
                   setShowRecordSourceModal(false);
-                  triggerToast('✅ የቀረጻ ምንጭ ወደ "ሙሉ ስክሪን / መስኮት" ተቀይሯል!');
+                  triggerToast(isAm ? '✅ የቀረጻ ምንጭ ወደ "ሙሉ ስክሪን / መስኮት" ተቀይሯል!' : '✅ Record source set to "Screen Share"');
                 }}
                 className={`w-full text-left p-3.5 rounded-xl border transition cursor-pointer flex items-start gap-3 ${
                   recordSource === 'screen'
@@ -6194,13 +7902,19 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs text-slate-900">🖥️ ሙሉ ስክሪን ወይም ታብ (Screen Share)</span>
+                    <span className="font-bold text-xs text-slate-900">
+                      {isAm ? '🖥️ ሙሉ ስክሪን ወይም ታብ' : '🖥️ Screen or Browser Tab'}
+                    </span>
                     {recordSource === 'screen' && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold">የተመረጠ</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold">
+                        {isAm ? 'የተመረጠ' : 'Selected'}
+                      </span>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                    የኮምፒውተርዎን ሙሉ ስክሪን፣ ብሮውዘር ታብ ወይም ሌላ ማንኛውንም መተግበሪያ በቀጥታ ለመቅረጽ።
+                    {isAm
+                      ? 'የኮምፒውተርዎን ሙሉ ስክሪን፣ ብሮውዘር ታብ ወይም ሌላ ማንኛውንም መተግበሪያ በቀጥታ ለመቅረጽ።'
+                      : 'Records full screen, window, or specific browser application tab.'}
                   </p>
                 </div>
               </button>
@@ -6211,7 +7925,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 onClick={() => {
                   setRecordSource('camera');
                   setShowRecordSourceModal(false);
-                  triggerToast('✅ የቀረጻ ምንጭ ወደ "የመምህር ካሜራ ብቻ" ተቀይሯል!');
+                  triggerToast(isAm ? '✅ የቀረጻ ምንጭ ወደ "የመምህር ካሜራ ብቻ" ተቀይሯል!' : '✅ Record source set to "Webcam Only"');
                 }}
                 className={`w-full text-left p-3.5 rounded-xl border transition cursor-pointer flex items-start gap-3 ${
                   recordSource === 'camera'
@@ -6226,13 +7940,19 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs text-slate-900">👤 የፊት ካሜራ ብቻ (Webcam Only)</span>
+                    <span className="font-bold text-xs text-slate-900">
+                      {isAm ? '👤 የፊት ካሜራ ብቻ' : '👤 Teacher Webcam Only'}
+                    </span>
                     {recordSource === 'camera' && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold">የተመረጠ</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold">
+                        {isAm ? 'የተመረጠ' : 'Selected'}
+                      </span>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                    ያለ ስላይድ የመምህሩን ገጽታና ንግግር ብቻ ለይቶ ለመቅረጽ ሲፈልጉ።
+                    {isAm
+                      ? 'ያለ ስላይድ የመምህሩን ገጽታና ንግግር ብቻ ለይቶ ለመቅረጽ ሲፈልጉ።'
+                      : 'Captures webcam video stream exclusively without slides.'}
                   </p>
                 </div>
               </button>
@@ -6244,7 +7964,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 onClick={() => setShowRecordSourceModal(false)}
                 className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition cursor-pointer"
               >
-                እሺ (Done)
+                {isAm ? 'እሺ' : 'Done'}
               </button>
             </div>
           </div>
@@ -6262,10 +7982,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 </div>
                 <div>
                   <h4 className="text-base font-black text-slate-900">
-                    የቀጥታ ትምህርት ቀረጻ ተጠናቋል! (Class Recorded)
+                    {isAm ? 'የቀጥታ ትምህርት ቀረጻ ተጠናቋል!' : 'Class Recording Finished!'}
                   </h4>
                   <p className="text-[11px] text-slate-500">
-                    ክፍለ-ጊዜው በተሳካ ሁኔታ ተቀርጾ ተዘጋጅቷል
+                    {isAm ? 'ክፍለ-ጊዜው በተሳካ ሁኔታ ተቀርጾ ተዘጋጅቷል' : 'Session recorded and ready to view or download'}
                   </p>
                 </div>
               </div>
@@ -6281,7 +8001,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
             <div className="rounded-xl overflow-hidden bg-black aspect-video relative flex items-center justify-center border border-slate-800 shadow-inner">
               <video
                 ref={modalVideoRef}
-                src={recordedVideoUrl}
+                src={recordedVideoUrl || undefined}
                 controls
                 playsInline
                 className="w-full h-full object-contain"
@@ -6313,8 +8033,8 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 <div className={`w-2.5 h-2.5 rounded-full ${recordedHasAudio ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
                 <span className="font-semibold text-slate-200">
                   {recordedHasAudio
-                    ? 'ድምፅ (Voice Audio): ተቀርጿል (Included & Active)'
-                    : 'ድምፅ (Voice Audio): ማይክሮፎን ጠፍቶ ነበር (Mic Inactive)'}
+                    ? (isAm ? 'ድምፅ: ተቀርጿል' : 'Voice Audio: Included')
+                    : (isAm ? 'ድምፅ: ማይክሮፎን ጠፍቶ ነበር' : 'Voice Audio: Mic Inactive')}
                 </span>
               </div>
               <button
@@ -6330,7 +8050,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer flex items-center gap-1 shadow-sm transition"
               >
                 <Volume2 className="w-3.5 h-3.5" />
-                <span>ድምፅ አጫውት (Unmute & Play)</span>
+                <span>{isAm ? 'ድምፅ አጫውት' : 'Unmute & Play'}</span>
               </button>
             </div>
 
@@ -6345,7 +8065,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                   {formatDuration(recordingSeconds)}
                 </span>
                 <span>•</span>
-                <span>ቀን: ዛሬ</span>
+                <span>{isAm ? 'ቀን: ዛሬ' : 'Date: Today'}</span>
               </div>
             </div>
 
@@ -6361,7 +8081,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                   className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
                 >
                   <FolderOpen className="w-3.5 h-3.5 text-slate-600" />
-                  <span>ወደ ቀረጻዎች ዝርዝር</span>
+                  <span>{isAm ? 'ወደ ቀረጻዎች ዝርዝር' : 'Recorded Sessions'}</span>
                 </button>
                 <button
                   type="button"
@@ -6373,10 +8093,10 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                     setRecordedVideoUrl(null);
                   }}
                   className="px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
-                  title="ይህን ቀረጻ አጥፋ"
+                  title={isAm ? 'ይህን ቀረጻ አጥፋ' : 'Delete Recording'}
                 >
                   <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                  <span>ይህን ቀረጻ አጥፋ (Delete)</span>
+                  <span>{isAm ? 'ይህን ቀረጻ አጥፋ' : 'Delete Recording'}</span>
                 </button>
               </div>
 
@@ -6391,7 +8111,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                     className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white text-xs font-bold shadow-sm transition cursor-pointer flex items-center gap-1.5"
                   >
                     <Film className="w-4 h-4 text-sky-200" />
-                    <span>ወደ "My Videos" ሂድና እይ</span>
+                    <span>{isAm ? 'በቪዲዮዎች እይ' : 'Open in My Videos'}</span>
                   </button>
                 )}
 
@@ -6401,7 +8121,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                   className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm transition cursor-pointer flex items-center gap-1.5"
                 >
                   <Download className="w-4 h-4" />
-                  <span>ቪዲዮውን አውርድ</span>
+                  <span>{isAm ? 'ቪዲዮውን አውርድ' : 'Download Video'}</span>
                 </a>
               </div>
             </div>

@@ -13,14 +13,17 @@ import {
   BookOpen,
   Video
 } from 'lucide-react';
-import { AppUser, ExamLevel } from '../types';
+import { AppUser, ExamLevel, Language } from '../types';
+import { recordRegisteredUser } from '../utils/userRegistry';
 
 interface AuthGateViewProps {
   onLoginSuccess: (user: AppUser) => void;
+  language?: Language;
 }
 
-export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) => {
+export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess, language = 'en' }) => {
   const [authMode, setAuthMode] = useState<'student' | 'teacher' | 'admin'>('student');
+  const isAm = language === 'am';
 
   // Student form state
   const [studentName, setStudentName] = useState<string>('');
@@ -54,6 +57,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
       schoolOrCity: city,
     };
     localStorage.setItem('ethio_exam_current_user', JSON.stringify(user));
+    recordRegisteredUser(user);
     onLoginSuccess(user);
   };
 
@@ -68,6 +72,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
       schoolOrCity: `Addis Ababa (${subject})`,
     };
     localStorage.setItem('ethio_exam_current_user', JSON.stringify(user));
+    recordRegisteredUser(user);
     onLoginSuccess(user);
   };
 
@@ -77,12 +82,12 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
 
     const trimmedName = studentName.trim();
     if (!trimmedName) {
-      setErrorMsg('እባክዎ የተማሪ ሙሉ ስም ያስገቡ (Please enter student full name)');
+      setErrorMsg(isAm ? 'እባክዎ የተማሪ ሙሉ ስም ያስገቡ' : 'Please enter student full name');
       return;
     }
 
     if (!studentPassword.trim()) {
-      setErrorMsg('እባክዎ የይለፍ ቃል ያስገቡ (Please enter student password)');
+      setErrorMsg(isAm ? 'እባክዎ የይለፍ ቃል ያስገቡ' : 'Please enter student password');
       return;
     }
 
@@ -96,6 +101,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
     };
 
     localStorage.setItem('ethio_exam_current_user', JSON.stringify(user));
+    recordRegisteredUser(user);
     onLoginSuccess(user);
   };
 
@@ -105,12 +111,12 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
 
     const trimmedName = teacherName.trim();
     if (!trimmedName) {
-      setErrorMsg('እባክዎ የመምህር ሙሉ ስም ያስገቡ (Please enter teacher full name)');
+      setErrorMsg(isAm ? 'እባክዎ የመምህር ሙሉ ስም ያስገቡ' : 'Please enter teacher full name');
       return;
     }
 
     if (!teacherPassword.trim()) {
-      setErrorMsg('እባክዎ የይለፍ ቃል ያስገቡ (Please enter password)');
+      setErrorMsg(isAm ? 'እባክዎ የይለፍ ቃል ያስገቡ' : 'Please enter password');
       return;
     }
 
@@ -124,6 +130,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
     };
 
     localStorage.setItem('ethio_exam_current_user', JSON.stringify(user));
+    recordRegisteredUser(user);
     onLoginSuccess(user);
   };
 
@@ -171,7 +178,9 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
             Ethio<span className="text-emerald-400">Exam</span> Portal
           </h1>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            የኢትዮጵያ ሀገር አቀፍ ፈተና ዝግጅት እና የቀጥታ ትምህርት ፖርታል
+            {isAm
+              ? 'የኢትዮጵያ ሀገር አቀፍ ፈተና ዝግጅት እና የቀጥታ ትምህርት ፖርታል'
+              : 'Ethiopian National Examination Preparation & Live Classroom Portal'}
           </p>
         </div>
 
@@ -193,7 +202,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
               }`}
             >
               <User className="w-3.5 h-3.5 shrink-0" />
-              <span>ተማሪ (Student)</span>
+              <span>{isAm ? 'ተማሪ' : 'Student'}</span>
             </button>
 
             <button
@@ -210,7 +219,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
               }`}
             >
               <Video className="w-3.5 h-3.5 shrink-0" />
-              <span>መምህር (Teacher)</span>
+              <span>{isAm ? 'መምህር' : 'Teacher'}</span>
             </button>
 
             <button
@@ -227,7 +236,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-              <span>አድሚን (Admin)</span>
+              <span>{isAm ? 'አስተዳዳሪ' : 'Admin'}</span>
             </button>
           </div>
 
@@ -244,7 +253,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
             <form onSubmit={handleTeacherSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  የመምህር ስም (Teacher Full Name)
+                  {isAm ? 'የመምህር ስም' : 'Teacher Full Name'}
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -253,7 +262,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
                     required
                     value={teacherName}
                     onChange={(e) => setTeacherName(e.target.value)}
-                    placeholder="መምህር ሃይማኖት አበራ / Teacher Haymanot"
+                    placeholder={isAm ? 'መምህር ሃይማኖት አበራ' : 'e.g. Dr. Kebede Tadesse'}
                     className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-sky-500 transition"
                   />
                 </div>
@@ -261,25 +270,25 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  የሚያስተምሩት የትምህርት ዘርፍ (Subject Area)
+                  {isAm ? 'የሚያስተምሩት የትምህርት ዘርፍ' : 'Subject Area'}
                 </label>
                 <select
                   value={teacherSubject}
                   onChange={(e) => setTeacherSubject(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white focus:outline-none focus:border-sky-500 transition cursor-pointer"
                 >
-                  <option value="Physics (Grade 12)">ፊዚክስ (Physics Grade 12)</option>
-                  <option value="Mathematics (Grade 12)">ሒሳብ (Mathematics Natural/Social)</option>
-                  <option value="Chemistry (Grade 12)">ኬሚስትሪ (Chemistry Grade 12)</option>
-                  <option value="Biology (Grade 12)">ባዮሎጂ (Biology Grade 12)</option>
-                  <option value="English (Grade 12)">እንግሊዝኛ (English Grade 12)</option>
-                  <option value="Grade 8 Ministry">የ 8ኛ ክፍል ሚኒስትሪ (Grade 8 All Subjects)</option>
+                  <option value="Physics (Grade 12)">{isAm ? 'ፊዚክስ' : 'Physics (Grade 12)'}</option>
+                  <option value="Mathematics (Grade 12)">{isAm ? 'ሒሳብ' : 'Mathematics (Grade 12)'}</option>
+                  <option value="Chemistry (Grade 12)">{isAm ? 'ኬሚስትሪ' : 'Chemistry (Grade 12)'}</option>
+                  <option value="Biology (Grade 12)">{isAm ? 'ባዮሎጂ' : 'Biology (Grade 12)'}</option>
+                  <option value="English (Grade 12)">{isAm ? 'እንግሊዝኛ' : 'English (Grade 12)'}</option>
+                  <option value="Grade 8 Ministry">{isAm ? 'የ 8ኛ ክፍል ሚኒስትሪ' : 'Grade 8 Ministry'}</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  የይለፍ ቃል (Password)
+                  {isAm ? 'የይለፍ ቃል' : 'Password'}
                 </label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -288,7 +297,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
                     required
                     value={teacherPassword}
                     onChange={(e) => setTeacherPassword(e.target.value)}
-                    placeholder="Enter password (e.g. 123456)"
+                    placeholder={isAm ? 'የይለፍ ቃል ያስገቡ' : 'Enter password'}
                     className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-sky-500 transition"
                   />
                   <button
@@ -306,25 +315,25 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({ onLoginSuccess }) =>
                 id="btn-teacher-submit"
                 className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm shadow-lg shadow-sky-600/30 transition flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
               >
-                <span>የመምህር የቀጥታ ስርጭት ይግቡ (Enter Teacher Studio)</span>
+                <span>{isAm ? 'የመምህር የቀጥታ ስርጭት ይግቡ' : 'Enter Teacher Studio'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
               {/* 1-Click Fast Teacher Login */}
               <div className="pt-2 border-t border-slate-700/60 space-y-2">
                 <span className="text-[11px] font-semibold text-slate-400 block text-center">
-                  ፈጣን የመምህር መግቢያ (1-Click Teacher Profile):
+                  {isAm ? 'ፈጣን የመምህር መግቢያ፦' : 'Quick Teacher Profile:'}
                 </span>
                 <button
                   type="button"
-                  onClick={() => handleQuickTeacherLogin('መምህር ሃይማኖት አበራ', 'Physics & ESSLCE')}
+                  onClick={() => handleQuickTeacherLogin(isAm ? 'መምህር ሃይማኖት አበራ' : 'Teacher Haymanot Abera', 'Physics & ESSLCE')}
                   className="w-full text-left p-2.5 rounded-xl bg-slate-900 hover:bg-slate-700/80 border border-sky-500/40 text-xs transition cursor-pointer flex items-center justify-between"
                 >
                   <div>
-                    <div className="font-bold text-sky-400">መምህር ሃይማኖት አበራ (Teacher Haymanot)</div>
+                    <div className="font-bold text-sky-400">{isAm ? 'መምህር ሃይማኖት አበራ' : 'Teacher Haymanot Abera'}</div>
                     <div className="text-[10px] text-slate-400">Physics & National Exam Specialist</div>
                   </div>
-                  <span className="text-[11px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-semibold">ግባ</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-semibold">{isAm ? 'ግባ' : 'Login'}</span>
                 </button>
               </div>
             </form>

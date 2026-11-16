@@ -1,568 +1,515 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   GraduationCap, 
-  Radio, 
-  BookOpen, 
-  FileText, 
-  Video, 
-  Sparkles, 
-  ArrowRight, 
-  CheckCircle2, 
-  Clock, 
+  Flame, 
+  Target, 
   TrendingUp, 
-  ChevronRight, 
-  Zap, 
-  Globe, 
-  School, 
-  Building2, 
-  User, 
-  Smartphone, 
+  Clock, 
+  BookOpen, 
+  ArrowRight, 
+  Radio, 
+  CheckCircle2, 
+  AlertCircle, 
+  Sparkles, 
   Award,
-  Bell,
-  Play
+  Zap,
+  Play,
+  RotateCcw,
+  Compass,
+  FileText
 } from 'lucide-react';
-import { ExamLevel, SubjectInfo, LiveClass, TopicMastery, ActiveTab } from '../types';
-import { TeacherDashboardView } from './TeacherDashboardView';
+import { ExamLevel, SubjectInfo, LiveClass, TopicMastery, ActiveTab, ExamResult, AppUser, Language } from '../types';
 
 interface DashboardViewProps {
+  currentUser: AppUser | null;
   selectedLevel: ExamLevel;
   subjects: SubjectInfo[];
+  examResults: ExamResult[];
+  topicMasteries: TopicMastery[];
   liveClasses: LiveClass[];
-  weakTopics: TopicMastery[];
+  language?: Language;
   onNavigate: (tab: ActiveTab) => void;
   onStartPractice: (subjectId: string, mode: 'practice' | 'exam') => void;
   onJoinLiveClass: (classId: string) => void;
-  onSelectSubjectForStudy: (subjectId: string) => void;
+  onOpenAuth?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
+  currentUser,
   selectedLevel,
   subjects,
+  examResults,
+  topicMasteries,
   liveClasses,
-  weakTopics,
+  language = 'en',
   onNavigate,
   onStartPractice,
   onJoinLiveClass,
+  onOpenAuth,
 }) => {
-  const [activeRoleView, setActiveRoleView] = useState<'student' | 'teacher'>('student');
-  const activeLive = liveClasses.find((c) => c.isLiveNow);
+  const currentSubjects = subjects.filter((s) => s.level === selectedLevel);
+  const currentResults = examResults.filter((r) => r.level === selectedLevel);
+  const currentMasteries = topicMasteries.filter((t) => t.level === selectedLevel);
+
+  // Statistics calculation - use actual user results if available
+  const hasUserTakenExams = currentResults.length > 0;
+  const totalExamsCompleted = hasUserTakenExams ? currentResults.length : 0;
+  const totalQuestionsAnswered = hasUserTakenExams 
+    ? currentResults.reduce((acc, r) => acc + r.totalQuestions, 0) 
+    : 0;
+  const totalCorrect = hasUserTakenExams 
+    ? currentResults.reduce((acc, r) => acc + r.correctAnswersCount, 0) 
+    : 0;
+  const avgScore = hasUserTakenExams 
+    ? Math.round(currentResults.reduce((acc, r) => acc + r.scorePercentage, 0) / currentResults.length) 
+    : 0;
+  const accuracy = totalQuestionsAnswered > 0 ? Math.round((totalCorrect / totalQuestionsAnswered) * 100) : 0;
+  const streakDays = currentUser ? (hasUserTakenExams ? Math.min(currentResults.length, 7) : 1) : 0;
+
+  // Active live broadcast matching student's grade level
+  const targetLiveLevel =
+    currentUser?.role === 'student' && currentUser.gradeLevel
+      ? currentUser.gradeLevel
+      : selectedLevel;
+  const activeLive = liveClasses.find((c) => c.isLiveNow && c.level === targetLiveLevel);
+
+  // Weak topics requiring review
+  const weakTopics = currentMasteries.filter((t) => t.accuracy < 65);
+  const topRecommendedSubject = currentSubjects[0] || subjects[0];
+
+  const studentName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Student';
 
   return (
-    <div className="space-y-10 pb-16">
-      {/* 0. PROMINENT LIVE CLASS ALERT BANNER (If teacher is live now) */}
+    <div className="space-y-8 pb-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* ------------------------------------------------------------- */}
+      {/* 1. WELCOME & 'WHAT SHOULD I DO NEXT?' HERO BANNER             */}
+      {/* ------------------------------------------------------------- */}
+      <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+              Student Learning Command Center
+            </span>
+            <span className="text-slate-300">•</span>
+            <span className="text-xs font-bold text-slate-500">
+              {selectedLevel.replace(/_/g, ' ').toUpperCase()}
+            </span>
+          </div>
+
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+            Welcome back, {studentName} 👋
+          </h1>
+
+          <p className="text-xs sm:text-sm text-slate-600 max-w-xl leading-relaxed">
+            Here is your daily exam preparation plan. You have maintained a <strong className="text-amber-700 font-bold">{streakDays}-day study streak</strong>. Let&apos;s build national examination mastery today.
+          </p>
+        </div>
+
+        {/* Action card: What should I do next? */}
+        <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 sm:p-5 max-w-sm w-full space-y-3 shrink-0">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-emerald-600 fill-emerald-600" />
+              What Should I Do Next?
+            </span>
+            <span className="text-[10px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+              Recommended
+            </span>
+          </div>
+
+          <div>
+            <div className="text-xs font-bold text-slate-900">
+              {weakTopics.length > 0 
+                ? `Drill Weak Chapter: ${weakTopics[0].topic}`
+                : `Take ${topRecommendedSubject?.name || 'Physics'} Mock Exam`}
+            </div>
+            <div className="text-[11px] text-slate-600 mt-0.5 line-clamp-1">
+              {weakTopics.length > 0 
+                ? 'Improve accuracy from 48% to clear national pass standards.'
+                : 'Benchmark your retention with a 2016 E.C. Ministry simulation.'}
+            </div>
+          </div>
+
+          <button
+            onClick={() => onStartPractice(topRecommendedSubject?.id || 'g12_physics', 'exam')}
+            className="w-full py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+          >
+            <span>Start Recommended Session</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 2. LIVE CLASS NOTIFICATION (If broadcast active)              */}
+      {/* ------------------------------------------------------------- */}
       {activeLive && (
-        <div className="rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 sm:p-5 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-red-400/40 animate-in fade-in">
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="relative shrink-0">
-              <img
-                src={activeLive.teacherAvatar}
-                alt={activeLive.teacherName}
-                className="w-12 h-12 rounded-xl object-cover border-2 border-white/40 shadow-sm"
-              />
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-white animate-ping" />
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-white" />
+              {activeLive.teacherAvatar ? (
+                <img
+                  src={activeLive.teacherAvatar}
+                  alt={activeLive.teacherName}
+                  className="w-11 h-11 rounded-xl object-cover border-2 border-red-300"
+                />
+              ) : (
+                <div className="w-11 h-11 rounded-xl bg-red-100 border-2 border-red-300 flex items-center justify-center text-red-600 font-bold text-lg">
+                  <Radio className="w-5 h-5 animate-pulse" />
+                </div>
+              )}
+              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-600 border-2 border-white animate-ping" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-600 border-2 border-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-full bg-white/20 text-[10px] font-black uppercase tracking-wider backdrop-blur-xs flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                  ቀጥታ ስርጭት (Live Now)
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-600 text-white flex items-center gap-1">
+                  <Radio className="w-3 h-3" />
+                  Live Classroom Now
                 </span>
-                <span className="text-xs text-red-100 font-semibold">{activeLive.subject}</span>
+                <span className="text-xs text-red-900 font-bold">{activeLive.subject}</span>
               </div>
-              <h3 className="text-sm sm:text-base font-extrabold text-white mt-0.5">
-                መምህር {activeLive.teacherName} - {activeLive.title}
+              <h3 className="text-sm font-black text-slate-900 mt-1">
+                {activeLive.title}
               </h3>
-              <p className="text-xs text-red-100/90 line-clamp-1">{activeLive.currentTopic}</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => onJoinLiveClass(activeLive.id)}
-              className="px-4 py-2.5 rounded-xl bg-white text-red-600 hover:bg-red-50 text-xs sm:text-sm font-extrabold shadow-md transition flex items-center gap-2 cursor-pointer active:scale-95"
-            >
-              <Radio className="w-4 h-4 animate-pulse" />
-              <span>ክፍሉን አሁኑኑ ተቀላቀል (Join Class)</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ------------------------------------------------------------- */}
-      {/* 1. TOP PLATFORM HERO & PILLARS (From Learnova screenshot) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="relative rounded-3xl bg-gradient-to-br from-slate-900 via-sky-950 to-indigo-950 text-white p-6 sm:p-10 overflow-hidden shadow-xl border border-sky-900/40">
-        <div className="relative z-10 space-y-6 max-w-4xl">
-          {/* Brand header */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-400 to-sky-500 flex items-center justify-center shadow-lg shadow-cyan-500/30">
-              <span className="text-white font-black text-xl italic tracking-tighter">L</span>
-            </div>
-            <div>
-              <div className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
-                <span>Learnova</span>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
-                  Global Education Platform
-                </span>
-              </div>
-              <p className="text-xs text-cyan-200/80 font-medium">
-                Learn Today, Build Tomorrow
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {activeLive.teacherName || (language === 'am' ? 'መምህር አልተመደበም' : 'No teacher assigned')}
               </p>
             </div>
           </div>
 
-          <div className="space-y-3">
-            <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight">
-              An AI-powered global learning & assessment platform for students, teachers & lifelong learners.
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-              Better learning, bigger dreams. Master national exams, attend real-time interactive classrooms, stream video lessons, and test retention with instant AI tutoring.
-            </p>
-          </div>
-
-          {/* 5 Core Pillars from screenshot: Study | Practice | Live | Test | Grow */}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            {[
-              { label: 'Study', action: () => onNavigate('documents'), color: 'hover:bg-emerald-500/20 hover:border-emerald-400' },
-              { label: 'Practice', action: () => onNavigate('exam_prep'), color: 'hover:bg-purple-500/20 hover:border-purple-400' },
-              { label: 'Live', action: () => onNavigate('live_classes'), color: 'hover:bg-red-500/20 hover:border-red-400' },
-              { label: 'Test', action: () => onNavigate('exam_prep'), color: 'hover:bg-sky-500/20 hover:border-sky-400' },
-              { label: 'Grow', action: () => onNavigate('analytics'), color: 'hover:bg-amber-500/20 hover:border-amber-400' },
-            ].map((pillar) => (
-              <button
-                key={pillar.label}
-                onClick={pillar.action}
-                className={`px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white text-xs font-bold transition cursor-pointer ${pillar.color}`}
-              >
-                {pillar.label}
-              </button>
-            ))}
-
-            {/* Quick Switcher between Student & Teacher View */}
-            <div className="ml-auto flex items-center p-1 rounded-xl bg-black/40 border border-white/10 text-xs">
-              <button
-                onClick={() => setActiveRoleView('student')}
-                className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
-                  activeRoleView === 'student' ? 'bg-cyan-500 text-white shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                Student View
-              </button>
-              <button
-                onClick={() => setActiveRoleView('teacher')}
-                className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
-                  activeRoleView === 'teacher' ? 'bg-cyan-500 text-white shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                Teacher View
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Ambient background glow */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
-      </div>
-
-      {/* If Teacher View is selected, render Teacher Dashboard */}
-      {activeRoleView === 'teacher' ? (
-        <TeacherDashboardView
-          onNavigate={onNavigate}
-          onStartLive={() => onNavigate('live_classes')}
-        />
-      ) : (
-        /* ------------------------------------------------------------- */
-        /* 2. STUDENT DASHBOARD (Exact layout from Learnova screenshot) */
-        /* ------------------------------------------------------------- */
-        <div className="space-y-6">
-          {/* Header matching Learnova screenshot */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
-                <GraduationCap className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                  Student Dashboard
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Track your progress. Find your weak areas. Achieve your goals.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-800">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                <span>Alex Johnson</span>
-                <span className="text-slate-400 font-normal">• Student Level 12</span>
-              </div>
-              <button className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer">
-                <Bell className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* 3 Student Cards matching Learnova screenshot: Overall Progress | Subject Performance | Weak Topics */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Card 1: Overall Progress */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between space-y-4">
-              <h3 className="font-extrabold text-slate-900 text-sm">
-                Overall Progress
-              </h3>
-
-              {/* Circular Gauge */}
-              <div className="flex flex-col items-center justify-center py-2">
-                <div className="relative w-32 h-32 flex items-center justify-center">
-                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="40"
-                      className="text-slate-100"
-                      strokeWidth="10"
-                      stroke="currentColor"
-                      fill="transparent"
-                    />
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="40"
-                      className="text-sky-600 transition-all duration-1000 ease-out"
-                      strokeWidth="10"
-                      strokeDasharray={251.2}
-                      strokeDashoffset={251.2 * (1 - 0.78)}
-                      strokeLinecap="round"
-                      stroke="currentColor"
-                      fill="transparent"
-                    />
-                  </svg>
-                  <div className="absolute flex flex-col items-center justify-center text-center">
-                    <span className="text-3xl font-black text-slate-900 tracking-tight font-mono">78%</span>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Mastery</span>
-                  </div>
-                </div>
-                <p className="text-xs font-semibold text-emerald-600 mt-2 text-center">
-                  Keep going! You're doing great.
-                </p>
-              </div>
-
-              {/* 3 Metrics from screenshot */}
-              <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100 text-center">
-                <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="font-black text-slate-900 text-base font-mono">8</div>
-                  <div className="text-[10px] text-slate-500 font-medium">Courses</div>
-                </div>
-                <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="font-black text-slate-900 text-base font-mono">15</div>
-                  <div className="text-[10px] text-slate-500 font-medium">Tests</div>
-                </div>
-                <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="font-black text-slate-900 text-base font-mono">42h</div>
-                  <div className="text-[10px] text-slate-500 font-medium">Study</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 2: Subject Performance */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-              <h3 className="font-extrabold text-slate-900 text-sm">
-                Subject Performance
-              </h3>
-
-              <div className="space-y-3 pt-1">
-                {[
-                  { name: 'Mathematics', score: 82, color: 'bg-blue-600' },
-                  { name: 'Physics', score: 91, color: 'bg-emerald-600' },
-                  { name: 'Chemistry', score: 74, color: 'bg-amber-500' },
-                  { name: 'Biology', score: 68, color: 'bg-purple-600' },
-                  { name: 'English', score: 80, color: 'bg-sky-500' },
-                ].map((item) => (
-                  <div key={item.name} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-700">{item.name}</span>
-                      <span className="font-bold text-slate-900 font-mono">{item.score}%</span>
-                    </div>
-                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${item.color}`}
-                        style={{ width: `${item.score}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={() => onNavigate('exam_prep')}
-                className="w-full py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs transition cursor-pointer border border-slate-200"
-              >
-                Practice Weak Subjects →
-              </button>
-            </div>
-
-            {/* Card 3: Weak Topics */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-              <h3 className="font-extrabold text-slate-900 text-sm">
-                Weak Topics
-              </h3>
-
-              <div className="space-y-3 pt-1">
-                {[
-                  { topic: 'Trigonometry', subject: 'Mathematics' },
-                  { topic: 'Organic Chemistry', subject: 'Chemistry' },
-                  { topic: 'Reading Comprehension', subject: 'English' },
-                ].map((item, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => onNavigate('exam_prep')}
-                    className="p-3.5 rounded-xl bg-slate-50 hover:bg-amber-50/50 border border-slate-200 hover:border-amber-300 transition cursor-pointer group flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="text-xs font-bold text-slate-900 group-hover:text-amber-950">
-                        {item.topic}
-                      </div>
-                      <div className="text-[11px] text-amber-700 font-medium mt-0.5">
-                        Needs more practice
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600 transition shrink-0" />
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={() => onNavigate('ai_lab')}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>Explain Weak Topics with AI</span>
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => onJoinLiveClass(activeLive.id)}
+            className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs transition flex items-center gap-2 self-start sm:self-auto cursor-pointer"
+          >
+            <span>Join Live Broadcast</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
         </div>
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* 3. POWERFUL FEATURES (From Learnova screenshot) */}
+      {/* 3. PERFORMANCE STATISTICS CARDS                               */}
       {/* ------------------------------------------------------------- */}
-      <div className="space-y-4 pt-4">
-        <div className="text-center max-w-xl mx-auto space-y-1">
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Powerful Features
-          </h2>
-          <p className="text-xs text-slate-500">
-            Everything you need to learn, practice and succeed.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[
-            {
-              id: 'exam_prep',
-              title: 'Exam Preparation',
-              desc: 'School, national, university, certification & more.',
-              color: 'from-purple-500 to-indigo-600',
-              icon: GraduationCap,
-              action: () => onNavigate('exam_prep'),
-            },
-            {
-              id: 'live_classes',
-              title: 'Live Classes',
-              desc: 'Join interactive sessions with expert teachers.',
-              color: 'from-blue-500 to-sky-600',
-              icon: Radio,
-              action: () => onNavigate('live_classes'),
-            },
-            {
-              id: 'documents',
-              title: 'Documents & PDFs',
-              desc: 'Access notes, slides, and study materials.',
-              color: 'from-emerald-500 to-teal-600',
-              icon: FileText,
-              action: () => onNavigate('documents'),
-            },
-            {
-              id: 'videos',
-              title: 'Video Learning',
-              desc: 'Watch lessons anytime, anywhere with real playback.',
-              color: 'from-cyan-500 to-blue-600',
-              icon: Video,
-              action: () => onNavigate('videos'),
-            },
-            {
-              id: 'ai_lab',
-              title: 'AI Learning',
-              desc: 'Generate questions, quizzes, summaries and more.',
-              color: 'from-violet-500 to-purple-600',
-              icon: Sparkles,
-              action: () => onNavigate('ai_lab'),
-            },
-            {
-              id: 'multi_lang',
-              title: 'Multi-Language',
-              desc: 'Learn in your preferred language seamlessly.',
-              color: 'from-sky-500 to-indigo-600',
-              icon: Globe,
-              action: () => onNavigate('exam_prep'),
-            },
-          ].map((feature) => {
-            const Icon = feature.icon;
-            return (
-              <div
-                key={feature.id}
-                onClick={feature.action}
-                className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-sky-400 hover:shadow-xs transition cursor-pointer group flex items-start gap-4"
-              >
-                <div className={`w-11 h-11 rounded-xl bg-gradient-to-tr ${feature.color} flex items-center justify-center text-white shrink-0 shadow-xs group-hover:scale-105 transition`}>
-                  <Icon className="w-5 h-5" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-sky-700 transition">
-                    {feature.title}
-                  </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    {feature.desc}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 4. FOR EVERYONE (From Learnova screenshot) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="space-y-4 pt-4">
-        <div className="text-center max-w-xl mx-auto space-y-1">
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            For Everyone
-          </h2>
-          <p className="text-xs text-slate-500">
-            A platform for every learner, at every stage.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            {
-              role: 'Students',
-              desc: 'Prepare for exams, learn new skills.',
-              icon: User,
-              color: 'text-sky-600 bg-sky-50 border-sky-200',
-              action: () => setActiveRoleView('student'),
-            },
-            {
-              role: 'Teachers',
-              desc: 'Create courses, host live classes.',
-              icon: Award,
-              color: 'text-purple-600 bg-purple-50 border-purple-200',
-              action: () => setActiveRoleView('teacher'),
-            },
-            {
-              role: 'Schools & Universities',
-              desc: 'Manage learning and assessments.',
-              icon: School,
-              color: 'text-emerald-600 bg-emerald-50 border-emerald-200',
-              action: () => onNavigate('exam_prep'),
-            },
-            {
-              role: 'Organizations',
-              desc: 'Build custom exams and training programs.',
-              icon: Building2,
-              color: 'text-amber-600 bg-amber-50 border-amber-200',
-              action: () => onNavigate('documents'),
-            },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.role}
-                onClick={item.action}
-                className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-slate-300 hover:shadow-xs transition cursor-pointer text-center space-y-3"
-              >
-                <div className={`w-12 h-12 rounded-2xl ${item.color} border flex items-center justify-center mx-auto shadow-2xs`}>
-                  <Icon className="w-6 h-6" />
-                </div>
-                <h3 className="font-extrabold text-slate-900 text-sm">
-                  {item.role}
-                </h3>
-                <p className="text-xs text-slate-500 leading-snug">
-                  {item.desc}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 5. GLOBAL EXAMS & HOW IT WORKS (From Learnova screenshot) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-4">
-        {/* Global Exam Support (6 cols) */}
-        <div className="lg:col-span-6 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-          <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-            <Globe className="w-5 h-5 text-sky-600" />
-            <span>Global Exam Support</span>
-          </h3>
-          <p className="text-xs text-slate-500">
-            Structured preparation for every critical academic milestone.
-          </p>
-
-          <div className="grid grid-cols-2 gap-2.5 pt-1">
-            {[
-              'School Exams',
-              'National Exams',
-              'University Entrance',
-              'University Exit',
-              'International Exams',
-              'Professional Certifications',
-            ].map((name) => (
-              <button
-                key={name}
-                onClick={() => onNavigate('exam_prep')}
-                className="p-3 rounded-xl bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-left transition cursor-pointer text-xs font-bold text-slate-800 flex items-center justify-between"
-              >
-                <span>{name}</span>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-              </button>
-            ))}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Average Score</span>
+            <TrendingUp className="w-4 h-4 text-emerald-600" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-emerald-700 font-mono">
+            {avgScore}%
+          </div>
+          <div className="text-[11px] text-slate-500 font-medium">
+            Passing benchmark: <span className="text-slate-800 font-bold">50%</span>
           </div>
         </div>
 
-        {/* How It Works (6 cols) */}
-        <div className="lg:col-span-6 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-          <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-            <span>How It Works</span>
-          </h3>
-          <p className="text-xs text-slate-500">
-            A simple 5-step journey to academic excellence.
-          </p>
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Accuracy Rate</span>
+            <CheckCircle2 className="w-4 h-4 text-teal-600" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+            {accuracy}%
+          </div>
+          <div className="text-[11px] text-slate-500 font-medium">
+            Verified across official past tests
+          </div>
+        </div>
 
-          <div className="space-y-2.5 pt-1">
-            {[
-              { step: '1. Sign Up', desc: 'Create your account in minutes.' },
-              { step: '2. Choose Exam', desc: 'Select your goals and subjects.' },
-              { step: '3. Learn & Practice', desc: 'Use videos, documents, quizzes and live classes.' },
-              { step: '4. Take Exams', desc: 'Track your score and progress in real-time.' },
-              { step: '5. Achieve', desc: 'Reach your goals and grow with confidence.' },
-            ].map((st, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-                <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-800 font-mono font-bold flex items-center justify-center text-[11px] shrink-0">
-                  {idx + 1}
-                </span>
-                <div>
-                  <strong className="text-slate-900">{st.step}</strong>: <span className="text-slate-600">{st.desc}</span>
-                </div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Exams Completed</span>
+            <Award className="w-4 h-4 text-blue-600" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+            {totalExamsCompleted}
+          </div>
+          <div className="text-[11px] text-slate-500 font-medium">
+            Full mock & subject exams
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Questions Solved</span>
+            <Target className="w-4 h-4 text-indigo-600" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+            {totalQuestionsAnswered}
+          </div>
+          <div className="text-[11px] text-slate-500 font-medium">
+            Drill & timed test questions
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-xs col-span-2 lg:col-span-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Study Streak</span>
+            <Flame className="w-4 h-4 text-amber-500 fill-amber-500" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-amber-600 font-mono">
+            {streakDays} Days
+          </div>
+          <div className="text-[11px] text-amber-700 font-bold">
+            Daily practice maintained 🔥
+          </div>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 4. CONTINUE LEARNING & RECENT EXAMS                           */}
+      {/* ------------------------------------------------------------- */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Left Column (8 cols): Recent Exams & Progress */}
+        <div className="lg:col-span-8 space-y-6">
+          {/* Recent Exam Attempts */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Recent Examination Attempts
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Past test results and official national passing status
+                </p>
               </div>
-            ))}
+
+              <button
+                onClick={() => onNavigate('exams')}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 cursor-pointer"
+              >
+                <span>Browse All Exams</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {currentResults.length > 0 ? (
+                currentResults.slice(0, 4).map((res) => (
+                  <div
+                    key={res.id}
+                    className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-white hover:border-slate-300 transition"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-extrabold text-slate-900">{res.title}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          res.passed ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {res.passed ? 'Passed (50%+)' : 'Needs Review'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 flex items-center gap-3">
+                        <span>{res.date}</span>
+                        <span>•</span>
+                        <span>{res.correctAnswersCount} / {res.totalQuestions} Correct</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 self-end sm:self-auto">
+                      <div className="text-right">
+                        <div className="text-lg font-black text-emerald-700 font-mono">
+                          {res.scorePercentage}%
+                        </div>
+                        <div className="text-[10px] text-slate-500">Final Score</div>
+                      </div>
+
+                      <button
+                        onClick={() => onStartPractice(res.subjectId, 'practice')}
+                        className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700"
+                        title="Review or retake drill"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-6 text-xs text-slate-500 space-y-2">
+                  <p>You haven&apos;t taken a timed exam in this grade level yet.</p>
+                  <button
+                    onClick={() => onNavigate('exams')}
+                    className="px-4 py-2 rounded-xl bg-emerald-700 text-white font-bold text-xs"
+                  >
+                    Start Your First Timed Exam
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Subjects Launcher */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Quick Subject Drills ({currentSubjects.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Instant practice for {selectedLevel.replace(/_/g, ' ')}
+                </p>
+              </div>
+
+              <button
+                onClick={() => onNavigate('subjects')}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 cursor-pointer"
+              >
+                <span>View Full Curriculum</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {currentSubjects.slice(0, 4).map((sub) => (
+                <div
+                  key={sub.id}
+                  className="p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:bg-white hover:border-emerald-300 transition flex items-center justify-between gap-3 group"
+                >
+                  <div className="space-y-1">
+                    <div className="text-xs font-bold text-slate-900 group-hover:text-emerald-700 transition">
+                      {sub.name}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {sub.questionCount} Questions • {sub.chapters.length} Chapters
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => onStartPractice(sub.id, 'practice')}
+                    className="p-2 rounded-xl bg-white border border-slate-200 group-hover:bg-emerald-700 group-hover:text-white group-hover:border-emerald-700 text-slate-700 transition cursor-pointer"
+                    title="Start practice"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column (4 cols): Recommended Practice & Diagnostic Guidance */}
+        <div className="lg:col-span-4 space-y-6">
+          {/* Weak Topics Diagnostic Card */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-amber-600" />
+                Targeted Chapter Drills
+              </span>
+              <span className="text-[10px] font-bold text-slate-500 font-mono">
+                {weakTopics.length} Needed
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {weakTopics.length > 0 ? (
+                weakTopics.slice(0, 3).map((wt) => (
+                  <div key={wt.topic} className="p-3 rounded-xl bg-amber-50/50 border border-amber-200/80 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-900">{wt.topic}</span>
+                      <span className="font-mono font-bold text-amber-700">{wt.accuracy}%</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-snug">
+                      {wt.suggestedAction}
+                    </p>
+                    <button
+                      onClick={() => {
+                        const matchedSubj =
+                          currentSubjects.find((s) =>
+                            s.name.toLowerCase().includes(wt.subject.toLowerCase()) ||
+                            wt.subject.toLowerCase().includes(s.name.toLowerCase().split(' ')[0])
+                          ) ||
+                          subjects.find((s) =>
+                            s.name.toLowerCase().includes(wt.subject.toLowerCase()) ||
+                            wt.subject.toLowerCase().includes(s.name.toLowerCase().split(' ')[0])
+                          );
+                        onStartPractice(matchedSubj?.id || currentSubjects[0]?.id, 'practice');
+                      }}
+                      className="w-full py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition cursor-pointer"
+                    >
+                      Practice This Topic
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="p-4 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs text-center space-y-1">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto" />
+                  <div className="font-bold">Great job! No critical weak topics.</div>
+                  <p className="text-[11px] text-emerald-700">You are performing well across all standard chapters.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Learning Suite Shortcuts */}
+          <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-md space-y-4">
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                Self-Study Tools
+              </span>
+              <h3 className="text-base font-extrabold text-white">
+                Exam Preparation Toolkit
+              </h3>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <button
+                onClick={() => onNavigate('live_classes')}
+                className="w-full p-3 rounded-xl bg-white/10 hover:bg-white/20 transition flex items-center justify-between text-left cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Radio className="w-4 h-4 text-red-400" />
+                  <span className="font-bold">Live Classes & Q&A</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              <button
+                onClick={() => onNavigate('documents')}
+                className="w-full p-3 rounded-xl bg-white/10 hover:bg-white/20 transition flex items-center justify-between text-left cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <FileText className="w-4 h-4 text-emerald-400" />
+                  <span className="font-bold">Notes & Formula PDFs</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              <button
+                onClick={() => onNavigate('ai_lab')}
+                className="w-full p-3 rounded-xl bg-white/10 hover:bg-white/20 transition flex items-center justify-between text-left cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span className="font-bold">AI Problem Explainer</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 };
+
+function ChevronRight(props: any) {
+  return (
+    <svg 
+      xmlns="http://www.w3.org/2000/svg" 
+      width="24" 
+      height="24" 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      {...props}
+    >
+      <path d="m9 18 6-6-6-6"/>
+    </svg>
+  );
+}

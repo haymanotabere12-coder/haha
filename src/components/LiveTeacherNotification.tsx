@@ -2,17 +2,23 @@ import React, { useEffect } from 'react';
 import { Radio, Users, ChevronRight, X, Sparkles, Volume2 } from 'lucide-react';
 import { ActiveBroadcastInfo } from '../utils/liveStreamService';
 
+import { Language } from '../types';
+
 interface LiveTeacherNotificationProps {
   broadcast: ActiveBroadcastInfo;
   onJoin: () => void;
   onDismiss: () => void;
+  language?: Language;
 }
 
 export const LiveTeacherNotification: React.FC<LiveTeacherNotificationProps> = ({
   broadcast,
   onJoin,
   onDismiss,
+  language = 'en',
 }) => {
+  const isAm = language === 'am';
+
   // Soft pleasant audio chime on notification popup
   useEffect(() => {
     try {
@@ -56,18 +62,20 @@ export const LiveTeacherNotification: React.FC<LiveTeacherNotificationProps> = (
             <div className="flex items-center gap-2 mb-0.5">
               <span className="px-2 py-0.5 rounded-full bg-red-600 text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1 shadow-xs">
                 <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                ቀጥታ ስርጭት (LIVE)
+                {isAm ? 'ቀጥታ ስርጭት' : 'LIVE'}
               </span>
               <span className="text-[11px] font-bold text-slate-400 truncate">
-                {broadcast.subject || 'National Exam Prep'}
+                {broadcast.subject || (isAm ? 'የፈተና ዝግጅት' : 'National Exam Prep')}
               </span>
             </div>
 
             <h4 className="text-sm font-extrabold text-white leading-snug truncate">
-              መምህር {broadcast.teacherName} በቀጥታ እያስተማሩ ነው!
+              {isAm
+                ? `መምህር ${broadcast.teacherName} በቀጥታ እያስተማሩ ነው!`
+                : `Teacher ${broadcast.teacherName} is Live Now!`}
             </h4>
             <p className="text-xs text-slate-300 mt-1 line-clamp-1">
-              {broadcast.topic || 'የፈተና ክለሳ እና የቀጥታ ጥያቄና መልስ ክፍለ-ጊዜ'}
+              {broadcast.topic || (isAm ? 'የፈተና ክለሳ እና የቀጥታ ጥያቄና መልስ ክፍለ-ጊዜ' : 'Exam review and interactive Q&A session')}
             </p>
 
             {/* Quick Action Buttons */}
@@ -77,7 +85,7 @@ export const LiveTeacherNotification: React.FC<LiveTeacherNotificationProps> = (
                 onClick={onJoin}
                 className="flex-1 px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold transition shadow-lg shadow-red-600/30 flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
               >
-                <span>አሁን ተቀላቀል (Join Now)</span>
+                <span>{isAm ? 'አሁን ተቀላቀል' : 'Join Now'}</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
 
@@ -86,7 +94,7 @@ export const LiveTeacherNotification: React.FC<LiveTeacherNotificationProps> = (
                 onClick={onDismiss}
                 className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition cursor-pointer"
               >
-                ቆይቼ
+                {isAm ? 'ቆይቼ' : 'Later'}
               </button>
             </div>
           </div>
@@ -96,7 +104,7 @@ export const LiveTeacherNotification: React.FC<LiveTeacherNotificationProps> = (
             type="button"
             onClick={onDismiss}
             className="absolute top-2.5 right-2.5 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition cursor-pointer"
-            title="ዝጋ (Dismiss)"
+            title={isAm ? 'ዝጋ' : 'Dismiss'}
           >
             <X className="w-4 h-4" />
           </button>

@@ -28,8 +28,9 @@ import {
   ExternalLink,
   RefreshCw
 } from 'lucide-react';
-import { VideoLesson, ExamLevel, SubjectInfo, AppUser } from '../types';
-import { getRecordedVideoUrl, deleteRecordedVideoBlob } from '../utils/recordedVideoStorage';
+import { VideoLesson, ExamLevel, SubjectInfo, AppUser, Language } from '../types';
+import { getRecordedVideoUrl, saveRecordedVideoBlob, deleteRecordedVideoBlob } from '../utils/recordedVideoStorage';
+import { uploadRecordedVideoToServer } from '../utils/liveStreamService';
 
 interface VideoLearningViewProps {
   videoLessons: VideoLesson[];
@@ -41,6 +42,7 @@ interface VideoLearningViewProps {
   onGenerateQuizFromVideo: (video: VideoLesson) => void;
   initialFilterTab?: 'All' | 'My Videos' | 'Saved';
   initialSelectedVideoId?: string;
+  language?: Language;
 }
 
 // Parse time format "03:15" or "01:20:45" to total seconds for seek
@@ -83,8 +85,12 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   onGenerateQuizFromVideo,
   initialFilterTab,
   initialSelectedVideoId,
+  language = 'en',
 }) => {
+  const isAm = language === 'am';
+
   const isAdmin = currentUser?.role === 'admin';
+  const canUploadVideo = currentUser?.role === 'admin' || currentUser?.role === 'teacher';
   const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'My Videos' | 'Saved'>(initialFilterTab || 'All');
   const [selectedVideo, setSelectedVideo] = useState<VideoLesson>(videoLessons[0] || null);
   
@@ -115,7 +121,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
 
   // New Video Form state
   const [newVideoTitle, setNewVideoTitle] = useState<string>('');
-  const [newSubjectId, setNewSubjectId] = useState<string>(subjects[0]?.id || 'phy12');
+  const [newSubjectId, setNewSubjectId] = useState<string>(subjects[0]?.id || 'g12_physics');
   const [newLevel, setNewLevel] = useState<ExamLevel>(selectedLevel);
   const [newInstructor, setNewInstructor] = useState<string>(currentUser?.name || 'Administrator');
   const [newChapter, setNewChapter] = useState<string>('Unit Core Concepts');
@@ -124,6 +130,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   // File Upload state (from device)
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileUrl, setSelectedFileUrl] = useState<string | null>(null);
+  const [isUploadingVideo, setIsUploadingVideo] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // YouTube Input state
@@ -133,6 +140,17 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [videoPendingDelete, setVideoPendingDelete] = useState<VideoLesson | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    setNewLevel(selectedLevel);
+  }, [selectedLevel]);
+
+  useEffect(() => {
+    const levelSubjs = subjects.filter((s) => s.level === newLevel);
+    if (levelSubjs.length > 0 && !levelSubjs.some((s) => s.id === newSubjectId)) {
+      setNewSubjectId(levelSubjs[0].id);
+    }
+  }, [newLevel, subjects]);
 
   const canDeleteVideo = (video: VideoLesson | null | undefined): boolean => {
     if (!video) return false;
@@ -208,11 +226,19 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
       }
       const resolveUrl = async () => {
         let url = typeof window !== 'undefined' ? (window as any).__ETHIO_RECORDED_VIDEOS?.[selectedVideo.id] : null;
-        if (!url && (selectedVideo.isLiveRecording || selectedVideo.id.startsWith('vid-rec-'))) {
+        const isManagedVideo =
+          selectedVideo.isLiveRecording ||
+          selectedVideo.id.startsWith('vid-rec-') ||
+          selectedVideo.id.startsWith('vid-custom-') ||
+          selectedVideo.id.startsWith('vid-admin-');
+
+        if (!url && isManagedVideo) {
           url = await getRecordedVideoUrl(selectedVideo.id);
         }
-        if (!url) {
-          url = selectedVideo.videoUrl;
+        if (!url || (url.startsWith('/api/recordings/stream/') && selectedVideo.videoUrl && !selectedVideo.videoUrl.startsWith('blob:'))) {
+          if (selectedVideo.videoUrl && !selectedVideo.videoUrl.startsWith('blob:')) {
+            url = selectedVideo.videoUrl;
+          }
         }
         if (!url && !selectedVideo.isLiveRecording && !selectedVideo.youtubeId) {
           url = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
@@ -263,13 +289,13 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   // Text-To-Speech voice narration of lesson content & key examination points
   const handleToggleTTS = () => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      triggerToast('በዚህ አሳሽ ውስጥ የድምፅ ንባብ (Speech) አልተደገፈም');
+      triggerToast(isAm ? 'በዚህ አሳሽ ውስጥ የድምፅ ንባብ አልተደገፈም' : 'Speech synthesis not supported in this browser');
       return;
     }
     if (isReadingAloud) {
       window.speechSynthesis.cancel();
       setIsReadingAloud(false);
-      triggerToast('የድምፅ ንባብ ቆሟል (Voice lecture paused)');
+      triggerToast(isAm ? 'የድምፅ ንባብ ቆሟል' : 'Voice lecture paused');
       return;
     }
     window.speechSynthesis.cancel();
@@ -291,7 +317,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
 
     window.speechSynthesis.speak(utterance);
     setIsReadingAloud(true);
-    triggerToast('🔊 የትምህርቱ ማብራሪያ በድምፅ እየተነበበ ነው (Reading lecture notes aloud)');
+    triggerToast(isAm ? '🔊 የትምህርቱ ማብራሪያ በድምፅ እየተነበበ ነው' : '🔊 Reading lecture notes aloud');
   };
 
   useEffect(() => {
@@ -337,7 +363,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
         setIsMuted(true);
         video.play().then(() => {
           setIsPlaying(true);
-          triggerToast('ድምፅ ለመስማት የድምፅ ምልክቱን (Unmute) ይጫኑ');
+          triggerToast(isAm ? 'ድምፅ ለመስማት የድምፅ ምልክቱን ይጫኑ' : 'Click unmute to enable audio');
         }).catch(() => setIsPlaying(false));
       });
     } else {
@@ -354,7 +380,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
         videoRef.current.volume = volumeLevel > 0 ? volumeLevel : 1.0;
       }
       setIsMuted(nextMuted);
-      triggerToast(nextMuted ? 'ድምፅ ተዘግቷል (Muted)' : 'ድምፅ ተከፍቷል (Unmuted - 100%)');
+      triggerToast(nextMuted ? (isAm ? 'ድምፅ ተዘግቷል' : 'Audio Muted') : (isAm ? 'ድምፅ ተከፍቷል' : 'Audio Unmuted'));
     } else {
       setIsMuted(!isMuted);
     }
@@ -376,13 +402,13 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
         return;
       }
       setPlaybackError(true);
-      triggerToast('የተቀዳው ቪዲዮ በመጫን ላይ ነው፤ እባክዎ "ዳግም ሞክር" የሚለውን ይጫኑ።');
+      triggerToast(isAm ? 'የተቀዳው ቪዲዮ በመጫን ላይ ነው፤ እባክዎ "ዳግም ሞክር" የሚለውን ይጫኑ።' : 'Recording is loading, please click retry.');
       return;
     }
     const fallbackUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
     if (activeVideoUrl !== fallbackUrl) {
       setActiveVideoUrl(fallbackUrl);
-      triggerToast('የቪዲዮው ፋይል በቀጥታ አልተጫወተም፤ የተጠባባቂ ትምህርት ቪዲዮ (Backup Stream) ተከፍቷል!');
+      triggerToast(isAm ? 'የተጠባባቂ ትምህርት ቪዲዮ ተከፍቷል' : 'Backup educational video stream opened');
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.load();
@@ -412,11 +438,18 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
     if (video.isLiveRecording || !video.youtubeId) {
       setPlayerMode('html5');
       let url = typeof window !== 'undefined' ? (window as any).__ETHIO_RECORDED_VIDEOS?.[video.id] : null;
-      if (!url && (video.isLiveRecording || video.id.startsWith('vid-rec-'))) {
+      const isManagedVideo =
+        video.isLiveRecording ||
+        video.id.startsWith('vid-rec-') ||
+        video.id.startsWith('vid-custom-') ||
+        video.id.startsWith('vid-admin-');
+      if (!url && isManagedVideo) {
         url = await getRecordedVideoUrl(video.id);
       }
-      if (!url) {
-        url = video.videoUrl;
+      if (!url || (url.startsWith('/api/recordings/stream/') && video.videoUrl && !video.videoUrl.startsWith('blob:'))) {
+        if (video.videoUrl && !video.videoUrl.startsWith('blob:')) {
+          url = video.videoUrl;
+        }
       }
       if (!url && !video.isLiveRecording) {
         url = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
@@ -448,13 +481,14 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('video/')) {
+    const looksLikeVideo =
+      file.type.startsWith('video/') || /\.(mp4|webm|mov|ogg|ogv|m4v)$/i.test(file.name);
+    if (!looksLikeVideo) {
       triggerToast('Please select a valid video file (MP4, WebM, MOV, etc.)');
       return;
     }
 
-    // Revoke previous blob URL to prevent memory leaks
-    if (selectedFileUrl) {
+    if (selectedFileUrl && selectedFileUrl.startsWith('blob:')) {
       URL.revokeObjectURL(selectedFileUrl);
     }
 
@@ -483,52 +517,72 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   };
 
   const handleOpenUploadModal = () => {
-    if (!isAdmin) {
+    if (!canUploadVideo) {
       setShowRestrictedModal(true);
       return;
     }
     setShowUploadModal(true);
   };
 
-  // Submission handler for admin video upload
-  const handleUploadVideo = () => {
+  // Submission handler for Teacher / Admin video upload (persisted in IndexedDB + server)
+  const handleUploadVideo = async () => {
+    if (isUploadingVideo) return;
     if (!newVideoTitle.trim()) {
-      triggerToast('Please enter a video title');
+      triggerToast(isAm ? 'እባክዎ የቪዲዮውን ርዕስ ያስገቡ' : 'Please enter a video title');
       return;
     }
 
     const selectedSubjectObj = subjects.find((s) => s.id === newSubjectId) || subjects[0];
+    const newVidId = `vid-custom-${Date.now()}`;
 
     let finalYoutubeId: string | undefined = undefined;
     let finalVideoUrl: string | undefined = undefined;
 
     if (uploadSourceType === 'file') {
-      if (!selectedFileUrl) {
-        triggerToast('Please choose a video file from your device to upload.');
+      if (!selectedFile || !selectedFileUrl) {
+        triggerToast(isAm ? 'እባክዎ ከመሳሪያዎ የቪዲዮ ፋይል ይምረጡ' : 'Please choose a video file from your device to upload.');
         return;
       }
-      finalVideoUrl = selectedFileUrl;
+      setIsUploadingVideo(true);
+      try {
+        const localSavedUrl = await saveRecordedVideoBlob(newVidId, selectedFile);
+        const serverStreamUrl = await uploadRecordedVideoToServer({
+          id: newVidId,
+          title: newVideoTitle.trim(),
+          subject: selectedSubjectObj?.name || 'General Studies',
+          instructor: newInstructor.trim() || currentUser?.name || 'Instructor',
+          duration: newDuration || '15:00',
+          level: newLevel,
+          chapter: newChapter.trim() || 'General Topic Review',
+          blob: selectedFile,
+          isLiveRecording: false,
+          archiveInLibrary: true,
+        });
+        finalVideoUrl = serverStreamUrl || localSavedUrl;
+      } finally {
+        setIsUploadingVideo(false);
+      }
     } else {
       const extracted = extractYouTubeId(youtubeInput);
       if (!extracted) {
-        triggerToast('Please enter a valid YouTube link or video ID.');
+        triggerToast(isAm ? 'እባክዎ ትክክለኛ የYouTube ሊንክ ወይም ID ያስገቡ' : 'Please enter a valid YouTube link or video ID.');
         return;
       }
       finalYoutubeId = extracted;
     }
 
     const newVid: VideoLesson = {
-      id: `vid-custom-${Date.now()}`,
+      id: newVidId,
       title: newVideoTitle.trim(),
       level: newLevel,
       subject: selectedSubjectObj?.name || 'General Studies',
       subjectId: selectedSubjectObj?.id || 'gen',
       chapter: newChapter.trim() || 'General Topic Review',
-      instructor: newInstructor.trim() || currentUser?.name || 'Platform Admin',
+      instructor: newInstructor.trim() || currentUser?.name || 'Instructor',
       duration: newDuration || '15:00',
       views: 1,
       youtubeId: finalYoutubeId,
-      videoUrl: finalVideoUrl || (finalYoutubeId ? undefined : 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'),
+      videoUrl: finalVideoUrl,
       thumbnailGradient: uploadSourceType === 'youtube' 
         ? 'from-red-950 via-rose-900 to-slate-900' 
         : 'from-sky-950 via-indigo-900 to-slate-900',
@@ -543,7 +597,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
         'Core curriculum breakdown for Ethiopian standardized examinations',
         'Practical step-by-step problem walkthroughs'
       ],
-      summaryNotes: `Uploaded video lecture covering ${newChapter} for ${selectedSubjectObj?.name}. Verified and published by ${newInstructor.trim()}.`,
+      summaryNotes: `Uploaded video lecture covering ${newChapter} for ${selectedSubjectObj?.name}. Published by ${newInstructor.trim() || currentUser?.name}.`,
     };
 
     if (onAddVideoLesson) {
@@ -552,8 +606,11 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
 
     setSelectedVideo(newVid);
     setPlayerMode(uploadSourceType === 'youtube' ? 'youtube' : 'html5');
+    if (finalVideoUrl) {
+      setActiveVideoUrl(finalVideoUrl);
+    }
     setIsPlaying(true);
-    triggerToast(`Video "${newVid.title}" published successfully!`);
+    triggerToast(isAm ? `ቪዲዮ "${newVid.title}" በተሳካ ሁኔታ ተጭኗል!` : `Video "${newVid.title}" published successfully!`);
 
     // Reset modal
     setShowUploadModal(false);
@@ -619,6 +676,8 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
         v.isLiveRecording === true ||
         (v as any).isRecordedByMe === true ||
         v.id.startsWith('vid-rec-') ||
+        v.id.startsWith('vid-custom-') ||
+        v.id.startsWith('vid-admin-') ||
         v.title.includes('ቀረጻ') ||
         v.instructor.toLowerCase().includes('admin') ||
         v.instructor.toLowerCase().includes('hayma') ||
@@ -640,7 +699,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
         </div>
       )}
 
-      {/* Header bar matching Learnova platform design */}
+      {/* Video Learning Center Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-500 flex items-center justify-center text-white shadow-sm shrink-0">
@@ -673,6 +732,9 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       (v) =>
                         v.isLiveRecording === true ||
                         (v as any).isRecordedByMe === true ||
+                        v.id.startsWith('vid-rec-') ||
+                        v.id.startsWith('vid-custom-') ||
+                        v.id.startsWith('vid-admin-') ||
                         v.instructor.toLowerCase().includes('admin') ||
                         v.instructor.toLowerCase().includes('hayma') ||
                         v.instructor.toLowerCase().includes('birhanu') ||
@@ -691,7 +753,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <span>{tab === 'My Videos' ? 'የኔ ቪዲዮዎች (My Videos)' : tab === 'Saved' ? 'የተቀመጡ (Saved)' : 'ሁሉም (All)'}</span>
+                  <span>{tab === 'My Videos' ? (isAm ? 'የኔ ቪዲዮዎች' : 'My Videos') : tab === 'Saved' ? (isAm ? 'የተቀመጡ' : 'Saved') : (isAm ? 'ሁሉም' : 'All')}</span>
                   <span
                     className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
                       activeFilterTab === tab ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
@@ -704,31 +766,25 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
             })}
           </div>
 
-          {/* Upload Button: Admin only can upload, restricted message for students */}
-          {isAdmin ? (
+          {/* Upload Button: Teachers & Admins can upload */}
+          {canUploadVideo ? (
             <button
               onClick={handleOpenUploadModal}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white text-xs font-bold shadow-xs transition shrink-0 cursor-pointer active:scale-95"
               id="btn-upload-video-admin"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>Upload Video</span>
-              <span className="px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-black uppercase tracking-wider">
-                Admin
-              </span>
+              <span>{isAm ? 'ቪዲዮ ጫን' : 'Upload Video'}</span>
             </button>
           ) : (
             <button
               onClick={handleOpenUploadModal}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold border border-slate-200 transition shrink-0 cursor-pointer"
-              title="Only administrators can upload videos"
+              title={isAm ? 'ቪዲዮ መጫን የሚችሉት መምህራን እና አስተዳዳሪዎች ብቻ ናቸው' : 'Only teachers and administrators can upload videos'}
               id="btn-upload-video-restricted"
             >
               <Lock className="w-3.5 h-3.5 text-slate-400" />
-              <span>Upload Video</span>
-              <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-500 text-[10px] font-medium">
-                Admin Only
-              </span>
+              <span>{isAm ? 'ቪዲዮ ጫን' : 'Upload Video'}</span>
             </button>
           )}
         </div>
@@ -755,7 +811,9 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                     {/* YouTube help banner */}
                     <div className="absolute top-2 left-2 right-2 bg-slate-900/90 backdrop-blur-xs border border-slate-700/80 rounded-lg p-2 text-xs text-slate-200 flex items-center justify-between gap-2 z-10">
                       <span className="truncate text-[11px]">
-                        💡 ቪዲዮው ድምፅ ከሌለው ወይም ካልተጫወተ ወደ ቀጥታ ማጫወቻ ይቀይሩ፦
+                        {isAm
+                          ? '💡 ቪዲዮው ድምፅ ከሌለው ወይም ካልተጫወተ ወደ ቀጥታ ማጫወቻ ይቀይሩ፦'
+                          : '💡 If video is silent or cannot play, switch to direct player:'}
                       </span>
                       <button
                         type="button"
@@ -773,7 +831,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                         }}
                         className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] shrink-0 transition cursor-pointer shadow-xs"
                       >
-                        ቀጥታ በድምፅ አጫውት (Direct Audio & Video)
+                        {isAm ? 'ቀጥታ በድምፅ አጫውት' : 'Direct Audio & Video'}
                       </button>
                     </div>
                   </div>
@@ -782,7 +840,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                     <video
                       ref={videoRef}
                       key={selectedVideo.id}
-                      src={activeVideoUrl}
+                      src={activeVideoUrl || undefined}
                       controls
                       playsInline
                       preload="auto"
@@ -808,10 +866,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                         type="button"
                         onClick={handleTogglePlay}
                         className="absolute inset-0 m-auto w-20 h-20 rounded-full bg-sky-600/90 hover:bg-sky-500 text-white flex flex-col items-center justify-center shadow-2xl transition transform hover:scale-110 active:scale-95 cursor-pointer z-20 backdrop-blur-xs border-2 border-white/40"
-                        title="ቪዲዮውን አጫውት (Play Video)"
+                        title={isAm ? 'ቪዲዮውን አጫውት' : 'Play Video'}
                       >
                         <Play className="w-9 h-9 fill-current ml-1" />
-                        <span className="text-[10px] font-black mt-0.5">አጫውት</span>
+                        <span className="text-[10px] font-black mt-0.5">{isAm ? 'አጫውት' : 'Play'}</span>
                       </button>
                     )}
 
@@ -827,14 +885,14 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                               setIsMuted(false);
                               setVolumeLevel(1.0);
                               videoRef.current.play().catch(() => {});
-                              triggerToast('🔊 ድምፅ ተከፍቷል (100% Volume Unmuted)');
+                              triggerToast(isAm ? '🔊 ድምፅ ተከፍቷል' : '🔊 Sound Unmuted (100%)');
                             }
                           }}
                           className="pointer-events-auto px-5 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs sm:text-sm flex items-center gap-2.5 shadow-2xl border-2 border-white/60 animate-bounce cursor-pointer transition transform hover:scale-105"
-                          title="ድምፅ ክፈት (Click to unmute sound)"
+                          title={isAm ? 'ድምፅ ክፈት' : 'Click to unmute sound'}
                         >
                           <VolumeX className="w-5 h-5 animate-pulse" />
-                          <span>🔊 ድምፅ ክፈት (የቪዲዮውን ድምፅ ለመስማት ይጫኑ - Unmute Audio)</span>
+                          <span>{isAm ? '🔊 ድምፅ ክፈት' : '🔊 Unmute Audio'}</span>
                         </button>
                       </div>
                     )}
@@ -845,10 +903,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                         type="button"
                         onClick={handleToggleMute}
                         className="absolute top-3 right-3 z-30 px-3 py-1.5 rounded-full bg-rose-600/90 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xl border border-white/40 animate-pulse cursor-pointer backdrop-blur-xs transition"
-                        title="ድምፅ ክፈት (Click to unmute sound)"
+                        title={isAm ? 'ድምፅ ክፈት' : 'Click to unmute sound'}
                       >
                         <VolumeX className="w-4 h-4" />
-                        <span>ድምፅ ክፈት (Unmute Audio)</span>
+                        <span>{isAm ? 'ድምፅ ክፈት' : 'Unmute Audio'}</span>
                       </button>
                     )}
 
@@ -857,7 +915,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       <div className="absolute bottom-3 left-3 right-3 p-2.5 rounded-xl bg-amber-950/90 border border-amber-500/60 text-amber-200 text-xs flex items-center justify-between gap-2 z-20">
                         <div className="flex items-center gap-1.5 truncate">
                           <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                          <span className="truncate">የተጠባባቂ ትምህርት ቪዲዮ (Backup Lesson Stream) ተከፍቷል</span>
+                          <span className="truncate">{isAm ? 'የተጠባባቂ ትምህርት ቪዲዮ ተከፍቷል' : 'Backup Lesson Stream Active'}</span>
                         </div>
                         <button
                           type="button"
@@ -870,7 +928,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                           }}
                           className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] shrink-0 cursor-pointer"
                         >
-                          ዳግም ሞክር
+                          {isAm ? 'ዳግም ሞክር' : 'Retry'}
                         </button>
                       </div>
                     )}
@@ -890,17 +948,17 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                         ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
                         : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                     }`}
-                    title={isPlaying ? 'ቪዲዮውን አቁም (Pause)' : 'ቪዲዮውን አጫውት (Play)'}
+                    title={isPlaying ? (isAm ? 'ቪዲዮውን አቁም' : 'Pause') : (isAm ? 'ቪዲዮውን አጫውት' : 'Play')}
                   >
                     {isPlaying ? (
                       <>
                         <Pause className="w-3.5 h-3.5 fill-current" />
-                        <span>አቁም (Pause)</span>
+                        <span>{isAm ? 'አቁም' : 'Pause'}</span>
                       </>
                     ) : (
                       <>
                         <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>አጫውት (Play)</span>
+                        <span>{isAm ? 'አጫውት' : 'Play'}</span>
                       </>
                     )}
                   </button>
@@ -911,7 +969,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       type="button"
                       onClick={handleToggleMute}
                       className="p-1 rounded-lg text-slate-300 hover:text-white transition cursor-pointer"
-                      title={isMuted ? 'ድምጽ ክፈት (Unmute)' : 'ድምጽ አጥፋ (Mute)'}
+                      title={isMuted ? (isAm ? 'ድምፅ ክፈት' : 'Unmute') : (isAm ? 'ድምፅ ዝጋ' : 'Mute')}
                     >
                       {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
                     </button>
@@ -923,7 +981,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       value={isMuted ? 0 : volumeLevel}
                       onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
                       className="w-16 sm:w-20 h-1.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                      title={`ድምፅ (Volume): ${Math.round((isMuted ? 0 : volumeLevel) * 100)}%`}
+                      title={isAm ? `የድምፅ መጠን፦ ${Math.round((isMuted ? 0 : volumeLevel) * 100)}%` : `Volume: ${Math.round((isMuted ? 0 : volumeLevel) * 100)}%`}
                     />
                     <span className="text-[10px] font-mono font-bold text-slate-300 min-w-[30px]">
                       {isMuted ? '0%' : `${Math.round(volumeLevel * 100)}%`}
@@ -934,19 +992,19 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                     {selectedVideo.subject}
                   </span>
                   <span className="text-slate-400 text-xs">
-                    የቪዲዮው ርዝመት: <strong className="text-white font-mono">{selectedVideo.duration}</strong>
+                    {isAm ? 'የቪዲዮው ርዝመት፦' : 'Duration:'} <strong className="text-white font-mono">{selectedVideo.duration}</strong>
                   </span>
                   {selectedVideo.isLiveRecording && (
                     <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 text-[10px] font-bold border border-rose-500/30 flex items-center gap-1">
                       <Film className="w-3 h-3" />
-                      <span>የቀጥታ ትምህርት ቀረጻ (Live REC)</span>
+                      <span>{isAm ? 'የቀጥታ ትምህርት ቀረጻ' : 'Live Recording'}</span>
                     </span>
                   )}
                 </div>
 
                 {/* Mode Switcher */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-slate-400 text-[11px]">ማጫወቻ (Player):</span>
+                  <span className="text-slate-400 text-[11px]">{isAm ? 'ማጫወቻ፦' : 'Player:'}</span>
                   <div className="flex rounded-lg bg-slate-800 p-0.5 border border-slate-700 text-[11px]">
                     <button
                       type="button"
@@ -963,7 +1021,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       }`}
                     >
                       <FileVideo className="w-3 h-3" />
-                      <span>ቀጥታ ማጫወቻ (Direct)</span>
+                      <span>{isAm ? 'ቀጥታ ማጫወቻ' : 'Direct Player'}</span>
                     </button>
 
                     {selectedVideo.youtubeId && (
@@ -1013,10 +1071,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                         type="button"
                         onClick={() => handleDeleteVideo(selectedVideo)}
                         className="px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        title="ይህን ቪዲዮ ከስርዓቱ ሰርዝ / አጥፋ (Delete)"
+                        title={isAm ? 'ይህን ቪዲዮ ከስርዓቱ ሰርዝ' : 'Delete this video'}
                       >
                         <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                        <span>ቪዲዮውን አጥፋ (Delete)</span>
+                        <span>{isAm ? 'ቪዲዮውን አጥፋ' : 'Delete Video'}</span>
                       </button>
                     )}
 
@@ -1029,10 +1087,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                           ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
                           : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                       }`}
-                      title="የትምህርቱን ማብራሪያ በድምፅ ያዳምጡ (Listen to lecture voice read-aloud)"
+                      title={isAm ? 'የትምህርቱን ማብራሪያ በድምፅ ያዳምጡ' : 'Listen to lecture voice read-aloud'}
                     >
                       <Volume2 className={`w-3.5 h-3.5 ${isReadingAloud ? 'animate-bounce' : 'text-emerald-100'}`} />
-                      <span>{isReadingAloud ? 'ድምፅ አቁም (Stop Voice)' : '🔊 በድምፅ አድምጥ (Listen to Voice)'}</span>
+                      <span>{isReadingAloud ? (isAm ? 'ድምፅ አቁም' : 'Stop Voice') : (isAm ? '🔊 በድምፅ አድምጥ' : '🔊 Listen Aloud')}</span>
                     </button>
 
                     <button
@@ -1195,7 +1253,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       <button
                         onClick={(e) => handleDeleteVideo(video, e)}
                         className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 cursor-pointer transition"
-                        title="ይህን ቪዲዮ ሰርዝ / አጥፋ (Delete Video)"
+                        title={isAm ? 'ይህን ቪዲዮ አጥፋ' : 'Delete Video'}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1212,15 +1270,15 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                 </div>
                 <div className="text-sm font-bold text-slate-800">
                   {activeFilterTab === 'My Videos'
-                    ? 'በ "My Videos" ስር የተቀመጠ ቪዲዮ የለም'
+                    ? (isAm ? 'በ "My Videos" ስር የተቀመጠ ቪዲዮ የለም' : 'No videos under "My Videos"')
                     : activeFilterTab === 'Saved'
-                    ? 'ምንም የተቀመጠ ቪዲዮ የለም'
-                    : 'ምንም ቪዲዮ አልተገኘም'}
+                    ? (isAm ? 'ምንም የተቀመጠ ቪዲዮ የለም' : 'No saved bookmarks')
+                    : (isAm ? 'ምንም ቪዲዮ አልተገኘም' : 'No videos found')}
                 </div>
                 <p className="text-xs text-slate-500 max-w-xs mx-auto">
                   {activeFilterTab === 'My Videos'
-                    ? 'በቀጥታ የትምህርት ክፍለ-ጊዜ (Live Class) ውስጥ 🔴 Record (ቅረጽ) ተጭነው ሲቀዱ እዚህ "My Videos" ስር በቀጥታ ይገኛል!'
-                    : 'እባክዎ የተለየ ማጣሪያ ይምረጡ።'}
+                    ? (isAm ? 'በቀጥታ የትምህርት ክፍለ-ጊዜ ውስጥ የቀረጹዋቸው ትምህርቶች እዚህ "My Videos" ስር ይገኛሉ!' : 'Classes recorded during live sessions appear here under "My Videos"!')
+                    : (isAm ? 'እባክዎ የተለየ ማጣሪያ ይምረጡ።' : 'Please select another subject or search term.')}
                 </p>
               </div>
             )}
@@ -1240,13 +1298,17 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
 
             <div className="text-center space-y-2">
               <h3 className="text-lg font-black text-slate-900">
-                Admin Permission Required
+                {isAm ? 'የመምህር ወይም የአስተዳዳሪ ፈቃድ ያስፈልጋል' : 'Teacher / Admin Permission Required'}
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Video lecture uploading is restricted to authorized platform <strong>Administrators (Admin)</strong>.
+                {isAm
+                  ? 'የቪዲዮ ትምህርቶችን መጫን የሚችሉት መምህራን እና አስተዳዳሪዎች ብቻ ናቸው።'
+                  : 'Video lecture uploading is available for Teacher and Administrator accounts.'}
               </p>
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-700 font-['Noto_Sans_Ethiopic'] leading-relaxed">
-                የቪዲዮ ትምህርቶችን ከኮምፒውተር ወይም ከ YouTube ማከል የሚችለው አስተዳዳሪ (Admin) ብቻ ነው። እባክዎ እንደ Admin ይግቡ።
+                {isAm
+                  ? 'የቪዲዮ ትምህርቶችን ከኮምፒውተር፣ ከስልክ ወይም ከ YouTube ማከል የሚችሉት መምህራንና አስተዳዳሪዎች ናቸው።'
+                  : 'Please sign in as a Teacher or Admin to upload video lessons.'}
               </div>
             </div>
 
@@ -1255,7 +1317,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                 onClick={() => setShowRestrictedModal(false)}
                 className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer"
               >
-                Understood / እሺ ገብቶኛል
+                {isAm ? 'እሺ ገብቶኛል' : 'Understood'}
               </button>
             </div>
           </div>
@@ -1263,9 +1325,9 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* ADMIN VIDEO UPLOAD MODAL (Local Device File OR YouTube Import)     */}
+      {/* TEACHER / ADMIN VIDEO UPLOAD MODAL (Device File OR YouTube Import) */}
       {/* ------------------------------------------------------------------ */}
-      {showUploadModal && isAdmin && (
+      {showUploadModal && canUploadVideo && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="w-full max-w-xl rounded-2xl bg-white border border-slate-200 p-6 space-y-5 shadow-2xl my-8">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -1275,10 +1337,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-900">
-                    Upload & Publish Video Lesson
+                    {isAm ? 'የቪዲዮ ትምህርት ጫን' : 'Upload & Publish Video Lesson'}
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Direct Device File Upload or YouTube Channel Import (Admin Only)
+                    {isAm ? 'ከመሳሪያዎ ቪዲዮ ይጫኑ ወይም ከYouTube ያስመጡ' : 'Direct Device Video Upload or YouTube Import (Teachers & Admins)'}
                   </p>
                 </div>
               </div>
@@ -1303,7 +1365,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                 }`}
               >
                 <UploadCloud className="w-4 h-4" />
-                <span>Upload from Device (ፋይል)</span>
+                <span>{isAm ? 'ከመሳሪያችን ጫን' : 'Upload from Device'}</span>
               </button>
 
               <button
@@ -1316,7 +1378,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                 }`}
               >
                 <Youtube className="w-4 h-4" />
-                <span>Import from YouTube (ከዩቲዩብ)</span>
+                <span>{isAm ? 'ከዩቲዩብ አስመጣ' : 'Import from YouTube'}</span>
               </button>
             </div>
 
@@ -1326,7 +1388,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="video/mp4,video/webm,video/ogg,video/quicktime"
+                  accept="video/*,.mp4,.webm,.mov,.ogg,.m4v"
                   onChange={handleFileChange}
                   className="hidden"
                   id="direct-video-file-input"
@@ -1342,10 +1404,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                     </div>
                     <div>
                       <div className="text-xs font-bold text-slate-800">
-                        Click to select video file from your computer or phone
+                        {isAm ? 'የቪዲዮ ፋይል ከመሳሪያዎ ለመምረጥ እዚህ ይጫኑ' : 'Click to select video file from your computer or phone'}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-0.5">
-                        Supports MP4, WebM, MOV, OGG (የራስዎን ቪዲዮ ፋይል ይምረጡ)
+                        {isAm ? 'የሚደገፉ ቅርጸቶች፦ MP4, WebM, MOV, OGG' : 'Supports MP4, WebM, MOV, OGG'}
                       </div>
                     </div>
                     <button
@@ -1379,7 +1441,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                     {/* Real preview inside modal */}
                     <div className="aspect-video w-full rounded-xl bg-black overflow-hidden shadow-inner">
                       <video
-                        src={selectedFileUrl}
+                        src={selectedFileUrl || undefined}
                         controls
                         className="w-full h-full object-cover"
                       />
@@ -1487,11 +1549,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                   onChange={(e) => setNewLevel(e.target.value as ExamLevel)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-sky-500 font-medium cursor-pointer"
                 >
-                  <option value="grade_12_natural">Grade 12 Natural Science</option>
-                  <option value="grade_12_social">Grade 12 Social Science</option>
-                  <option value="university_entrance">University Entrance (Freshman)</option>
+                  <option value="grade_12_natural">Grade 12 Natural Science (ESSLCE)</option>
+                  <option value="grade_12_social">Grade 12 Social Science (ESSLCE)</option>
+                  <option value="grade_8">Grade 8 Ministry Exam</option>
                   <option value="university_exit">University Exit Exam</option>
-                  <option value="grade_8_ministry">Grade 8 Ministry Exam</option>
                 </select>
               </div>
 
@@ -1547,10 +1608,20 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
               <button
                 type="button"
                 onClick={handleUploadVideo}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer active:scale-95"
+                disabled={isUploadingVideo}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 disabled:opacity-60 text-white text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer active:scale-95"
               >
-                <Check className="w-4 h-4" />
-                <span>Publish Lesson to Platform</span>
+                {isUploadingVideo ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>{isAm ? 'ቪዲዮውን በመጫን ላይ...' : 'Uploading Video...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>{isAm ? 'ቪዲዮውን ጫን' : 'Publish Lesson to Platform'}</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1567,10 +1638,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
               </div>
               <div>
                 <h4 className="text-base font-black text-slate-900">
-                  ቪዲዮውን ማጥፋት ይፈልጋሉ?
+                  {isAm ? 'ቪዲዮውን ማጥፋት ይፈልጋሉ?' : 'Delete This Video?'}
                 </h4>
                 <p className="text-xs text-slate-500 font-medium">
-                  Delete Video Confirmation
+                  {isAm ? 'የቪዲዮ ስረዛ ማረጋገጫ' : 'Delete Video Confirmation'}
                 </p>
               </div>
             </div>
@@ -1582,14 +1653,16 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
               <div className="text-slate-500 flex items-center gap-2 text-[11px] font-mono flex-wrap">
                 <span className="font-bold text-sky-700 px-1.5 py-0.5 rounded bg-sky-50">{videoPendingDelete.subject}</span>
                 <span>•</span>
-                <span>ርዝመት፦ {videoPendingDelete.duration}</span>
+                <span>{isAm ? `ርዝመት፦ ${videoPendingDelete.duration}` : `Duration: ${videoPendingDelete.duration}`}</span>
                 <span>•</span>
-                <span>መምህር፦ {videoPendingDelete.instructor}</span>
+                <span>{isAm ? `መምህር፦ ${videoPendingDelete.instructor}` : `Instructor: ${videoPendingDelete.instructor}`}</span>
               </div>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              ይህ ቪዲዮ ከስርዓቱና ከቪዲዮ ዝርዝር ውስጥ ሙሉ በሙሉ ይሰረዛል። ይህን እርምጃ መመለስ አይቻልም። በእርግጥ ማጥፋት ይፈልጋሉ?
+              {isAm
+                ? 'ይህ ቪዲዮ ከስርዓቱና ከቪዲዮ ዝርዝር ውስጥ ሙሉ በሙሉ ይሰረዛል። ይህን እርምጃ መመለስ አይቻልም። በእርግጥ ማጥፋት ይፈልጋሉ?'
+                : 'This video will be permanently removed from the system and video lessons list. This action cannot be undone. Are you sure you want to delete it?'}
             </p>
 
             <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -1598,7 +1671,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                 onClick={() => setVideoPendingDelete(null)}
                 className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
               >
-                ተመለስ (Cancel)
+                {isAm ? 'ተመለስ' : 'Cancel'}
               </button>
               <button
                 type="button"
@@ -1606,7 +1679,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                 className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-sm transition cursor-pointer flex items-center gap-1.5 active:scale-95"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>አዎ፣ አጥፋ (Delete Video)</span>
+                <span>{isAm ? 'አዎ፣ አጥፋ' : 'Delete Video'}</span>
               </button>
             </div>
           </div>

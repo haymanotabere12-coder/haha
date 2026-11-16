@@ -24,8 +24,11 @@ import {
   Check,
   AlertCircle
 } from 'lucide-react';
-import { Question, ExamLevel, SubjectInfo, LiveClass, AppUser, VideoLesson } from '../types';
+import { Question, ExamLevel, SubjectInfo, LiveClass, AppUser, VideoLesson, Language } from '../types';
 import { extractYouTubeId } from './VideoLearningView';
+import { getRegisteredUsers } from '../utils/userRegistry';
+import { saveRecordedVideoBlob } from '../utils/recordedVideoStorage';
+import { uploadRecordedVideoToServer } from '../utils/liveStreamService';
 
 interface AdminPanelViewProps {
   currentUser: AppUser;
@@ -33,6 +36,7 @@ interface AdminPanelViewProps {
   subjects: SubjectInfo[];
   liveClasses: LiveClass[];
   videoLessons?: VideoLesson[];
+  language?: Language;
   onAddQuestion: (newQ: Question) => void;
   onDeleteQuestion: (qId: string) => void;
   onAddLiveClass?: (newClass: LiveClass) => void;
@@ -50,6 +54,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   subjects,
   liveClasses,
   videoLessons = [],
+  language = 'en',
   onAddQuestion,
   onDeleteQuestion,
   onAddLiveClass,
@@ -60,11 +65,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   announcement,
   onUpdateAnnouncement,
 }) => {
+  const isAm = language === 'am';
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<'questions' | 'videos' | 'live' | 'students' | 'announcements'>('questions');
 
   // Video Lessons Manager State
   const [vidTitle, setVidTitle] = useState('');
-  const [vidSubject, setVidSubject] = useState(subjects[0]?.id || 'phy12');
+  const [vidSubject, setVidSubject] = useState(subjects[0]?.id || 'g12_physics');
   const [vidLevel, setVidLevel] = useState<ExamLevel>('grade_12_natural');
   const [vidInstructor, setVidInstructor] = useState(currentUser.name || 'Platform Administrator');
   const [vidChapter, setVidChapter] = useState('');
@@ -74,6 +80,8 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   const [vidFileUrl, setVidFileUrl] = useState<string | null>(null);
   const [vidYoutubeInput, setVidYoutubeInput] = useState('');
   const [vidSuccessNotice, setVidSuccessNotice] = useState(false);
+  const [vidErrorNotice, setVidErrorNotice] = useState<string | null>(null);
+  const [vidPendingDelete, setVidPendingDelete] = useState<VideoLesson | null>(null);
   const [vidSearchFilter, setVidSearchFilter] = useState('');
   const vidFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -84,7 +92,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   const [optC, setOptC] = useState('');
   const [optD, setOptD] = useState('');
   const [correctOption, setCorrectOption] = useState<'A' | 'B' | 'C' | 'D'>('A');
-  const [questionSubject, setQuestionSubject] = useState(subjects[0]?.id || 'phy12');
+  const [questionSubject, setQuestionSubject] = useState(subjects[0]?.id || 'g12_physics');
   const [questionLevel, setQuestionLevel] = useState<ExamLevel>('grade_12_natural');
   const [questionTopic, setQuestionTopic] = useState('');
   const [questionExplanation, setQuestionExplanation] = useState('');
@@ -93,6 +101,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   const [questionYear, setQuestionYear] = useState('2016 E.C. (2024 G.C.)');
   const [isPastExam, setIsPastExam] = useState(true);
   const [questionSuccessNotice, setQuestionSuccessNotice] = useState(false);
+  const [questionErrorNotice, setQuestionErrorNotice] = useState<string | null>(null);
 
   // Filter state for question bank table
   const [searchFilter, setSearchFilter] = useState('');
@@ -105,7 +114,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
 
   // New Live Class form
   const [newClassTitle, setNewClassTitle] = useState('');
-  const [newClassTeacher, setNewClassTeacher] = useState('Ustaz Jemal / Dr. Kebede');
+  const [newClassTeacher, setNewClassTeacher] = useState('');
   const [newClassSubject, setNewClassSubject] = useState(subjects[0]?.name || 'Physics');
   const [newClassTopic, setNewClassTopic] = useState('');
   const [liveSuccessNotice, setLiveSuccessNotice] = useState(false);
@@ -113,8 +122,9 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   // Handlers
   const handleCreateQuestion = (e: React.FormEvent) => {
     e.preventDefault();
+    setQuestionErrorNotice(null);
     if (!newQuestionText.trim() || !optA.trim() || !optB.trim() || !optC.trim() || !optD.trim()) {
-      alert('Please fill in question text and all four options.');
+      setQuestionErrorNotice('Please fill in question text and all four options.');
       return;
     }
 
@@ -166,27 +176,42 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     }
   };
 
-  const handleCreateVideoLesson = (e: React.FormEvent) => {
+  const handleCreateVideoLesson = async (e: React.FormEvent) => {
     e.preventDefault();
+    setVidErrorNotice(null);
     if (!vidTitle.trim()) {
-      alert('Please enter a video lesson title.');
+      setVidErrorNotice('Please enter a video lesson title.');
       return;
     }
 
     const subObj = subjects.find(s => s.id === vidSubject) || subjects[0];
+    const newVidId = `vid-admin-${Date.now()}`;
     let finalYoutubeId: string | undefined = undefined;
     let finalVideoUrl: string | undefined = undefined;
 
     if (vidUploadType === 'file') {
-      if (!vidFileUrl) {
-        alert('Please choose a video file from your device.');
+      if (!vidFile || !vidFileUrl) {
+        setVidErrorNotice('Please choose a video file from your device.');
         return;
       }
-      finalVideoUrl = vidFileUrl;
+      const localUrl = await saveRecordedVideoBlob(newVidId, vidFile);
+      const serverUrl = await uploadRecordedVideoToServer({
+        id: newVidId,
+        title: vidTitle.trim(),
+        subject: subObj?.name || 'General Studies',
+        instructor: vidInstructor.trim() || currentUser.name,
+        duration: vidDuration || '15:00',
+        level: vidLevel,
+        chapter: vidChapter.trim() || 'Curriculum Topic Review',
+        blob: vidFile,
+        isLiveRecording: false,
+        archiveInLibrary: true,
+      });
+      finalVideoUrl = serverUrl || localUrl;
     } else {
       const extracted = extractYouTubeId(vidYoutubeInput);
       if (!extracted) {
-        alert('Please enter a valid YouTube video link or 11-digit video ID.');
+        setVidErrorNotice('Please enter a valid YouTube video link or 11-digit video ID.');
         return;
       }
       finalYoutubeId = extracted;
@@ -194,7 +219,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
 
     if (onAddVideoLesson) {
       const newVid: VideoLesson = {
-        id: `vid-admin-${Date.now()}`,
+        id: newVidId,
         title: vidTitle.trim(),
         subject: subObj?.name || 'General Studies',
         subjectId: subObj?.id || 'gen',
@@ -253,13 +278,13 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         subject: newClassSubject,
         subjectId: subjects.find(s => s.name === newClassSubject)?.id || 'gen',
         level: questionLevel,
-        teacherName: newClassTeacher,
-        teacherTitle: 'National Exam Coach',
-        teacherAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-        isLiveNow: true,
-        scheduledTime: 'Now Streaming',
+        teacherName: newClassTeacher.trim() || '',
+        teacherTitle: newClassTeacher.trim() ? (isAm ? 'መምህር' : 'Instructor') : (isAm ? 'መምህር ይጠበቃል' : 'Pending Assignment'),
+        teacherAvatar: '',
+        isLiveNow: false,
+        scheduledTime: isAm ? 'የታቀደ ክፍለ-ጊዜ' : 'Scheduled Session',
         durationMinutes: 60,
-        currentViewers: 84,
+        currentViewers: 0,
         currentTopic: newClassTopic || 'Revision and Question Solving',
         slides: [
           {
@@ -290,6 +315,26 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
     const matchesLevel = selectedLevelFilter === 'all' || q.level === selectedLevelFilter;
     return matchesSearch && matchesSubject && matchesLevel;
   });
+
+  // Genuine registered students tracking from persistent registry
+  const registeredUsersList = getRegisteredUsers();
+  const enrolledStudents = registeredUsersList.filter((u) => u.role === 'student');
+  if (currentUser?.role === 'student' && !enrolledStudents.some((s) => s.id === currentUser.id)) {
+    enrolledStudents.unshift({
+      id: currentUser.id,
+      name: currentUser.name,
+      username: currentUser.username,
+      role: 'student',
+      gradeLevel: currentUser.gradeLevel,
+      schoolOrCity: currentUser.schoolOrCity || 'Ethiopia',
+      registeredAt: new Date().toISOString(),
+      studyStreakDays: 1,
+      averageMockScore: 0,
+      examsTakenCount: 0,
+      lastActive: new Date().toISOString(),
+      status: 'Recently Joined',
+    });
+  }
 
   return (
     <div className="space-y-6 pb-12 max-w-7xl mx-auto">
@@ -333,8 +378,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
 
         <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
           <div className="text-xs text-slate-500 font-semibold">Enrolled Students</div>
-          <div className="text-2xl font-black text-slate-900 mt-1">1,480+</div>
-          <div className="text-[11px] text-indigo-600 font-medium mt-0.5">Across 11 Regions & City Admins</div>
+          <div className="text-2xl font-black text-slate-900 mt-1">{enrolledStudents.length}</div>
+          <div className="text-[11px] text-indigo-600 font-medium mt-0.5">
+            {enrolledStudents.length === 1 ? '1 Registered Student' : `${enrolledStudents.length} Registered Students`}
+          </div>
         </div>
 
         <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
@@ -434,6 +481,13 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>Question added successfully to the live Exam Bank!</span>
+              </div>
+            )}
+
+            {questionErrorNotice && (
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{questionErrorNotice}</span>
               </div>
             )}
 
@@ -745,6 +799,13 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               </div>
             )}
 
+            {vidErrorNotice && (
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{vidErrorNotice}</span>
+              </div>
+            )}
+
             {/* Source Type Toggle */}
             <div className="grid grid-cols-2 gap-2 p-1.5 rounded-xl bg-slate-100 border border-slate-200 max-w-md">
               <button
@@ -757,7 +818,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 }`}
               >
                 <UploadCloud className="w-4 h-4" />
-                <span>Upload from Device (ከመሳሪያችን)</span>
+                <span>Upload from Device</span>
               </button>
 
               <button
@@ -770,7 +831,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 }`}
               >
                 <Youtube className="w-4 h-4" />
-                <span>Import YouTube (ከዩቲዩብ)</span>
+                <span>Import from YouTube</span>
               </button>
             </div>
 
@@ -823,7 +884,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                         </button>
                       </div>
                       <div className="aspect-video max-w-sm rounded-xl overflow-hidden bg-black shadow-inner">
-                        <video src={vidFileUrl} controls className="w-full h-full object-cover" />
+                        <video src={vidFileUrl || undefined} controls className="w-full h-full object-cover" />
                       </div>
                     </div>
                   )}
@@ -902,11 +963,10 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                     onChange={(e) => setVidLevel(e.target.value as ExamLevel)}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-purple-500 cursor-pointer"
                   >
-                    <option value="grade_12_natural">Grade 12 Natural</option>
-                    <option value="grade_12_social">Grade 12 Social</option>
-                    <option value="university_entrance">Freshman / Entrance</option>
+                    <option value="grade_12_natural">Grade 12 Natural Science (ESSLCE)</option>
+                    <option value="grade_12_social">Grade 12 Social Science (ESSLCE)</option>
+                    <option value="grade_8">Grade 8 Ministry Exam</option>
                     <option value="university_exit">University Exit Exam</option>
-                    <option value="grade_8_ministry">Grade 8 Regional</option>
                   </select>
                 </div>
 
@@ -1010,11 +1070,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
 
                       {onDeleteVideoLesson && (
                         <button
-                          onClick={() => {
-                            if (window.confirm(`Delete lesson "${video.title}"?`)) {
-                              onDeleteVideoLesson(video.id);
-                            }
-                          }}
+                          onClick={() => setVidPendingDelete(video)}
                           className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
                           title="Delete Lesson"
                         >
@@ -1081,17 +1137,22 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Teacher / Instructor Name</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {isAm ? 'የመምህር ሁኔታ' : 'Teacher Status'}
+                  </label>
                   <input
                     type="text"
                     value={newClassTeacher}
                     onChange={(e) => setNewClassTeacher(e.target.value)}
-                    placeholder="Instructor name"
+                    placeholder={isAm ? "መምህር አልተመደበም (ክፍት ሆኖ ይቆያል)" : "Leave blank for unassigned session"}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-purple-500"
                   />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    {isAm ? "መምህር እስኪመደብ ክፍት ሆኖ ይመዘገባል።" : "Will remain unassigned until claimed by an instructor."}
+                  </span>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Subject</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">{isAm ? 'የትምህርት ዓይነት' : 'Subject'}</label>
                   <select
                     value={newClassSubject}
                     onChange={(e) => setNewClassSubject(e.target.value)}
@@ -1105,12 +1166,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Topic Description</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">{isAm ? 'የትምህርቱ ርዕስ ማብራሪያ' : 'Topic Description'}</label>
                 <input
                   type="text"
                   value={newClassTopic}
                   onChange={(e) => setNewClassTopic(e.target.value)}
-                  placeholder="e.g. Solving 2015-2016 National Exam Hardest Problems live with interactive polls"
+                  placeholder={isAm ? "ምሳሌ፦ 2016 ብሔራዊ ፈተና አስቸጋሪ ጥያቄዎች ክለሳ" : "e.g. Solving 2015-2016 National Exam Hardest Problems live with interactive polls"}
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-purple-500"
                 />
               </div>
@@ -1120,8 +1181,8 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                   type="submit"
                   className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md transition flex items-center gap-2 active:scale-95 cursor-pointer"
                 >
-                  <Radio className="w-4 h-4 animate-pulse" />
-                  <span>Start Live Session</span>
+                  <Radio className="w-4 h-4" />
+                  <span>{isAm ? 'መርሃ-ግብር መዝግብ' : 'Save & Schedule Live Class'}</span>
                 </button>
               </div>
             </form>
@@ -1221,40 +1282,95 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3">Student Name</th>
-                  <th className="p-3">Grade Level</th>
-                  <th className="p-3">Location / School</th>
-                  <th className="p-3">Study Streak</th>
-                  <th className="p-3">Average Mock Score</th>
-                  <th className="p-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {[
-                  { name: 'Abebe Kebede', level: 'Grade 12 Natural', city: 'Addis Ababa (Bole)', streak: '14 days', score: '82%', status: 'Active Practicing' },
-                  { name: 'Selamawit Desta', level: 'Grade 8 Regional', city: 'Hawassa (Tabor)', streak: '9 days', score: '78%', status: 'Active Practicing' },
-                  { name: 'Kidus Tadesse', level: 'University Exit', city: 'AAU Technology', streak: '21 days', score: '88%', status: 'Reviewing Flashcards' },
-                  { name: 'Marta Hailu', level: 'Grade 12 Social', city: 'Bahir Dar', streak: '7 days', score: '74%', status: 'Solving Past Papers' },
-                  { name: 'Yohannes Girma', level: 'Grade 12 Natural', city: 'Adama', streak: '11 days', score: '85%', status: 'In Live Class' },
-                ].map((std, i) => (
-                  <tr key={i} className="hover:bg-slate-50/60 transition">
-                    <td className="p-3 font-bold text-slate-900">{std.name}</td>
-                    <td className="p-3 font-semibold text-emerald-800">{std.level}</td>
-                    <td className="p-3 text-slate-500">{std.city}</td>
-                    <td className="p-3 font-mono font-bold text-amber-700">🔥 {std.streak}</td>
-                    <td className="p-3 font-mono font-bold text-slate-900">{std.score}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 text-[10px]">
-                        {std.status}
-                      </span>
-                    </td>
+            {enrolledStudents.length > 0 ? (
+              <table className="w-full text-left text-xs text-slate-700">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="p-3">Student Name</th>
+                    <th className="p-3">Grade Level</th>
+                    <th className="p-3">Location / School</th>
+                    <th className="p-3">Study Streak</th>
+                    <th className="p-3">Average Mock Score</th>
+                    <th className="p-3">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {enrolledStudents.map((std) => (
+                    <tr key={std.id} className="hover:bg-slate-50/60 transition">
+                      <td className="p-3 font-bold text-slate-900">{std.name}</td>
+                      <td className="p-3 font-semibold text-emerald-800">
+                        {std.gradeLevel === 'grade_12_natural'
+                          ? 'Grade 12 Natural'
+                          : std.gradeLevel === 'grade_12_social'
+                          ? 'Grade 12 Social'
+                          : std.gradeLevel === 'university_exit'
+                          ? 'University Exit'
+                          : 'Grade 8 Ministry'}
+                      </td>
+                      <td className="p-3 text-slate-500">{std.schoolOrCity}</td>
+                      <td className="p-3 font-mono font-bold text-amber-700">🔥 {std.studyStreakDays}d</td>
+                      <td className="p-3 font-mono font-bold text-slate-900">
+                        {std.averageMockScore > 0 ? `${std.averageMockScore}%` : 'N/A (Pending test)'}
+                      </td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 text-[10px]">
+                          {std.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="p-8 text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
+                  <Users className="w-6 h-6" />
+                </div>
+                <div className="text-sm font-bold text-slate-700">{isAm ? 'እስካሁን የተመዘገበ ተማሪ የለም' : 'No Enrolled Students Yet'}</div>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  When new students register or sign in across Ethiopia, their authenticated profiles, grade levels, and live exam performance will appear here automatically.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* IN-APP DELETE VIDEO CONFIRMATION MODAL */}
+      {vidPendingDelete && onDeleteVideoLesson && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h4 className="text-base font-black text-slate-900">Delete Video Lesson?</h4>
+                <p className="text-xs text-slate-500 font-medium">{vidPendingDelete.title}</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              This video lesson will be permanently removed from the platform inventory.
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setVidPendingDelete(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteVideoLesson(vidPendingDelete.id);
+                  setVidPendingDelete(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+              >
+                Delete Lesson
+              </button>
+            </div>
           </div>
         </div>
       )}

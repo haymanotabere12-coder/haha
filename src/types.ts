@@ -1,5 +1,7 @@
 export type ExamLevel = 'grade_8' | 'grade_12_natural' | 'grade_12_social' | 'university_exit';
 
+export type Language = 'en' | 'am';
+
 export interface SubjectInfo {
   id: string;
   name: string;
@@ -53,6 +55,8 @@ export interface LiveSlide {
   diagramDescription?: string;
   imageUrl?: string;
   subtitle?: string;
+  content?: string[];
+  notes?: string;
 }
 
 export interface LiveClass {
@@ -87,6 +91,7 @@ export interface LiveClass {
 export interface LiveChatMessage {
   id: string;
   sender: string;
+  userId?: string;
   avatar?: string;
   role: 'teacher' | 'student' | 'moderator' | 'ai_tutor';
   text: string;
@@ -94,6 +99,14 @@ export interface LiveChatMessage {
   isQuestion?: boolean;
   upvotes: number;
   isAnswered?: boolean;
+  answeredBy?: string;
+  answeredAt?: string;
+  teacherAnswer?: string;
+  isPinned?: boolean;
+  attachmentName?: string;
+  attachmentUrl?: string;
+  replyTo?: { id: string; sender: string; text: string };
+  reactions?: Record<string, number>;
 }
 
 export interface DocumentMaterial {
@@ -112,6 +125,7 @@ export interface DocumentMaterial {
   bookmarked?: boolean;
   downloadsCount: number;
   fullExcerpt: string;
+  fileUrl?: string;
 }
 
 export interface VideoLesson {
@@ -165,13 +179,17 @@ export interface AppUser {
   name: string;
   role: UserRole;
   gradeLevel?: ExamLevel;
+  teachingSubject?: string;
   email?: string;
   schoolOrCity?: string;
   avatar?: string;
 }
 
 export type ActiveTab = 
-  | 'dashboard' 
+  | 'home'
+  | 'dashboard'
+  | 'exams'
+  | 'subjects'
   | 'exam_prep' 
   | 'live_classes' 
   | 'documents' 
@@ -179,3 +197,20 @@ export type ActiveTab =
   | 'ai_lab' 
   | 'analytics'
   | 'admin';
+
+export interface ExamCardInfo {
+  id: string;
+  title: string;
+  subjectId: string;
+  subjectName: string;
+  level: ExamLevel;
+  questionCount: number;
+  durationMinutes: number;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  examType: 'National Past Paper' | 'Full Mock Exam' | 'Chapter Drill';
+  year: string;
+  totalAttempts: number;
+  passRate: number;
+  description: string;
+  isFeatured?: boolean;
+}

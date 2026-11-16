@@ -1,4 +1,4 @@
-import { SubjectInfo, Question, LiveClass, DocumentMaterial, VideoLesson, Flashcard, TopicMastery } from '../types';
+import { SubjectInfo, Question, LiveClass, DocumentMaterial, VideoLesson, Flashcard, TopicMastery, ExamCardInfo } from '../types';
 
 export const SUBJECTS_DATA: SubjectInfo[] = [
   // Grade 8
@@ -221,7 +221,7 @@ export const INITIAL_QUESTIONS: Question[] = [
     ],
     correctAnswer: 'B',
     explanation: '√144 = 12 (rational). 3.14 is a terminating decimal (314/100, rational). 5/9 is a fraction of integers (rational). √27 = 3√3, which cannot be expressed as a ratio of two integers; therefore, it is irrational.',
-    amharicExplanation: '√27 = 3√3 ሙሉ ቁጥር ስላልሆነ እና በሁለት ሙሉ ቁጥሮች ክፍፍል መልክ መፃፍ ስለማይችል ኢ-አመክንዮአዊ (Irrational) ቁጥር ነው።'
+    amharicExplanation: '√27 = 3√3 ሙሉ ቁጥር ስላልሆነ እና በሁለት ሙሉ ቁጥሮች ክፍፍል መልክ መፃፍ ስለማይችል ኢ-አመክንዮአዊ ቁጥር ነው።'
   },
   {
     id: 'q8-m-2',
@@ -261,7 +261,7 @@ export const INITIAL_QUESTIONS: Question[] = [
     ],
     correctAnswer: 'D',
     explanation: 'The Left Ventricle has the thickest muscular wall and forcefully contracts to pump oxygen-rich blood through the aorta into systemic circulation.',
-    amharicExplanation: 'የግራው የልብ ታችኛው ክፍል (Left Ventricle) ኦክስጅን የበለጸገውን ደም በዋናው የደም ቧንቧ (Aorta) በኩል ወደ መላው ሰውነት ይረጫል።'
+    amharicExplanation: 'የግራው የልብ ታችኛው ክፍል ኦክስጅን የበለጸገውን ደም በዋናው የደም ቧንቧ በኩል ወደ መላው ሰውነት ይረጫል።'
   },
   {
     id: 'q8-s-2',
@@ -521,13 +521,13 @@ export const LIVE_CLASSES_DATA: LiveClass[] = [
     subject: 'Physics',
     subjectId: 'g12_physics',
     level: 'grade_12_natural',
-    teacherName: 'Ato Birhanu Tadesse',
-    teacherTitle: 'Senior ESSLCE National Exam Examiner & Physics Lecturer',
-    teacherAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    isLiveNow: true,
-    scheduledTime: 'Now (Started 18 mins ago)',
+    teacherName: '',
+    teacherTitle: 'Pending Assignment',
+    teacherAvatar: '',
+    isLiveNow: false,
+    scheduledTime: 'Scheduled Session',
     durationMinutes: 75,
-    currentViewers: 28,
+    currentViewers: 0,
     currentTopic: 'Faraday’s Law, Lenz’s Law Sign Convention & AC Generator Calculation Patterns',
     slides: [
       {
@@ -564,11 +564,11 @@ export const LIVE_CLASSES_DATA: LiveClass[] = [
       id: 'poll-1',
       question: 'If the speed of rotation of an AC generator is doubled, what happens to the maximum induced EMF?',
       options: ['Remains unchanged', 'It is doubled', 'It is quadrupled', 'It is halved'],
-      votes: [4, 19, 3, 2],
+      votes: [0, 0, 0, 0],
     },
     hasRecording: true,
     recordingDuration: '1h 18m',
-    materialsAttached: ['Unit_4_Electromagnetism_Summary_Notes.pdf', '2016_ESSLCE_Physics_Worked_Solutions.pdf'],
+    materialsAttached: ['Physics_Notes.pdf', 'Grade_12_Physics_Unit_4_Booklet.pdf'],
     youtubeId: 'wR2R8e74V2w',
   },
   {
@@ -577,13 +577,13 @@ export const LIVE_CLASSES_DATA: LiveClass[] = [
     subject: 'Geography & History',
     subjectId: 'g12_geo',
     level: 'grade_12_social',
-    teacherName: 'W/ro Aster Worku',
-    teacherTitle: 'Lead Social Science Department Head & Curriculum Author',
-    teacherAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
-    isLiveNow: true,
-    scheduledTime: 'Live Right Now',
+    teacherName: '',
+    teacherTitle: 'Pending Assignment',
+    teacherAvatar: '',
+    isLiveNow: false,
+    scheduledTime: 'Scheduled Session',
     durationMinutes: 80,
-    currentViewers: 34,
+    currentViewers: 0,
     currentTopic: 'Major Ethiopian River Basins (Abbay, Baro-Akobo, Omo-Gibe) & Continental Rifting',
     slides: [
       {
@@ -611,7 +611,7 @@ export const LIVE_CLASSES_DATA: LiveClass[] = [
       id: 'poll-social-1',
       question: 'Which Ethiopian river carries the largest volume of water discharge annually?',
       options: ['Awash River', 'Abbay (Blue Nile)', 'Baro-Akobo', 'Wabi Shebelle'],
-      votes: [3, 23, 6, 2],
+      votes: [0, 0, 0, 0],
     },
     hasRecording: true,
     recordingDuration: '1h 10m',
@@ -624,13 +624,13 @@ export const LIVE_CLASSES_DATA: LiveClass[] = [
     subject: 'Computer Science & Software Eng.',
     subjectId: 'exit_cs_se',
     level: 'university_exit',
-    teacherName: 'Dr. Selamawit Bekele',
-    teacherTitle: 'Associate Professor of Computer Science, AAU',
-    teacherAvatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-    isLiveNow: true,
-    scheduledTime: 'Live Right Now',
+    teacherName: '',
+    teacherTitle: 'Pending Assignment',
+    teacherAvatar: '',
+    isLiveNow: false,
+    scheduledTime: 'Scheduled Session',
     durationMinutes: 90,
-    currentViewers: 22,
+    currentViewers: 0,
     currentTopic: 'Database Normalization (1NF to BCNF) & Distributed Caching Architectures',
     slides: [
       {
@@ -655,7 +655,7 @@ export const LIVE_CLASSES_DATA: LiveClass[] = [
       id: 'poll-cs-1',
       question: 'Which Normal Form eliminates transitive functional dependencies on the primary key?',
       options: ['1NF', '2NF', '3NF', 'BCNF'],
-      votes: [2, 4, 14, 2],
+      votes: [0, 0, 0, 0],
     },
     hasRecording: true,
     recordingDuration: '1h 32m',
@@ -668,13 +668,13 @@ export const LIVE_CLASSES_DATA: LiveClass[] = [
     subject: 'Mathematics',
     subjectId: 'g8_math',
     level: 'grade_8',
-    teacherName: 'Ustaz Ahmed Nur',
-    teacherTitle: 'Ministry Exam Top Mentor',
-    teacherAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    isLiveNow: true,
-    scheduledTime: 'Live Right Now',
+    teacherName: '',
+    teacherTitle: 'Pending Assignment',
+    teacherAvatar: '',
+    isLiveNow: false,
+    scheduledTime: 'Scheduled Session',
     durationMinutes: 60,
-    currentViewers: 31,
+    currentViewers: 0,
     currentTopic: 'Linear inequalities, word problems on ages, speed-distance-time',
     slides: [
       {
@@ -700,7 +700,7 @@ export const LIVE_CLASSES_DATA: LiveClass[] = [
       id: 'poll-g8-1',
       question: 'If a car travels at 60 km/h for 2 hours and 30 minutes, what is the total distance covered?',
       options: ['120 km', '135 km', '150 km', '180 km'],
-      votes: [2, 3, 23, 3],
+      votes: [0, 0, 0, 0],
     },
     hasRecording: true,
     recordingDuration: '1h 05m',
@@ -715,19 +715,11 @@ export const INITIAL_CHAT_MESSAGES: Record<string, any[]> = {
       id: 'm1',
       sender: 'Kalkidan Mengistu',
       role: 'student',
-      text: 'Teacher, in the ESSLCE 2016 exam, was the AC generator question asking for peak voltage or RMS voltage?',
+      text: 'In the ESSLCE 2016 exam, was the AC generator question asking for peak voltage or RMS voltage?',
       timestamp: '18:04',
       isQuestion: true,
       upvotes: 24,
-      isAnswered: true,
-    },
-    {
-      id: 'm2',
-      sender: 'Ato Birhanu Tadesse',
-      role: 'teacher',
-      text: 'Excellent question Kalkidan! Unless the question explicitly mentions "RMS" or "effective", the formula ε_max = NABω calculates the PEAK (maximum) voltage. For RMS, divide by √2!',
-      timestamp: '18:06',
-      upvotes: 48,
+      isAnswered: false,
     },
     {
       id: 'm3',
@@ -764,7 +756,7 @@ export const DOCUMENTS_DATA: DocumentMaterial[] = [
     uploadedBy: 'Senior Math Faculty',
     uploadDate: '2026-03-01',
     bookmarked: true,
-    downloadsCount: 18450,
+    downloadsCount: 0,
     fullExcerpt: `MATHEMATICS CHAPTER 1: FUNCTIONS, LIMITS AND CONTINUITY
 1. Function definitions: domain, codomain, range, injection, surjection, bijection.
 2. Limit of a function: ε-δ formal definition and algebraic properties.
@@ -786,7 +778,7 @@ export const DOCUMENTS_DATA: DocumentMaterial[] = [
     uploadedBy: 'Physics Department Lead',
     uploadDate: '2026-02-28',
     bookmarked: true,
-    downloadsCount: 15200,
+    downloadsCount: 0,
     fullExcerpt: `PHYSICS REVISION NOTES: ESSENTIAL LAWS OF MOTION & ROTATIONAL DYNAMICS
 1. Newton's Three Laws:
    - Law of Inertia (F_net = 0 => a = 0)
@@ -795,6 +787,173 @@ export const DOCUMENTS_DATA: DocumentMaterial[] = [
 2. Work-Energy Theorem: W_net = ΔK = (1/2)m v_f² - (1/2)m v_i²
 3. Conservation of Linear Momentum in collisions: m₁u₁ + m₂u₂ = m₁v₁ + m₂v₂.
 4. Rotational kinematics: θ, ω, α and torque τ = I·α.`,
+  },
+  {
+    id: 'doc-1',
+    title: 'Grade_12_Physics_Unit_4_Booklet.pdf',
+    subject: 'Physics',
+    subjectId: 'g12_physics',
+    level: 'grade_12_natural',
+    chapter: 'Unit 4: Electromagnetism & Induced EMF',
+    category: 'Teacher Summary',
+    fileType: 'PDF',
+    pages: 42,
+    fileSize: '4.8 MB',
+    uploadedBy: 'Ministry Curriculum Specialist Group',
+    uploadDate: '2026-02-15',
+    bookmarked: true,
+    downloadsCount: 0,
+    fullExcerpt: `ETHIOPIAN SECONDARY SCHOOL LEAVING CERTIFICATE EXAMINATION (ESSLCE)
+GRADE 12 PHYSICS MODULE: UNIT 4 ELECTROMAGNETISM & INDUCTION
+
+SECTION 1: MAGNETIC FIELDS AND LORENTZ FORCE
+When an electric charge q moves with velocity v through a magnetic field B at angle θ:
+F_B = q(v × B) = q · v · B · sin(θ).
+Key observations:
+1. If the charge moves parallel to B (θ = 0° or 180°), F_B = 0.
+2. Magnetic force is perpendicular to velocity; hence magnetic forces do zero work. Kinetic energy and speed remain constant.
+
+SECTION 2: FARADAY'S LAW & LENZ'S LAW
+Magnetic flux Φ_B = B · A · cos(θ).
+Induced EMF: ε = -N · (dΦ_B / dt).
+Lenz's law: The induced current establishes a magnetic field opposing the change in magnetic flux that induced it.
+
+SECTION 3: AC GENERATORS & TRANSFORMERS
+Instantaneous induced EMF: ε(t) = ε_max · sin(ωt) = (N · B · A · ω) · sin(ωt).
+Ideal transformer relation: V_p / V_s = N_p / N_s = I_s / I_p.`,
+  },
+  {
+    id: 'doc-geo-drainage',
+    title: 'Ethiopian_Geography_Drainage_Basins.pdf',
+    subject: 'Geography',
+    subjectId: 'g12_geo',
+    level: 'grade_12_social',
+    chapter: 'Topography & Drainage Systems of Ethiopia',
+    category: 'Teacher Summary',
+    fileType: 'PDF',
+    pages: 38,
+    fileSize: '3.6 MB',
+    uploadedBy: 'Department of Social Sciences',
+    uploadDate: '2026-02-10',
+    bookmarked: true,
+    downloadsCount: 0,
+    fullExcerpt: `ETHIOPIAN SECONDARY EDUCATION CURRICULUM: GRADE 12 GEOGRAPHY
+DRAINAGE SYSTEMS AND WATER RESOURCES OF ETHIOPIA
+
+1. GENERAL CHARACTERISTICS OF ETHIOPIAN RIVERS:
+- Ethiopia is recognized as the "Water Tower of East Africa" with an annual runoff volume of approximately 124 billion cubic meters.
+- Most rivers originate from the high central plateau and flow outwards across international boundaries.
+- Rapid flow, steep gradients, cataracts, and waterfalls make rivers ideal for hydroelectric energy (e.g. GERD, Gilgel Gibe) rather than navigation.
+- The Baro River in Gambella is the only navigable river in Ethiopia during high-water seasons.
+
+2. MAJOR DRAINAGE BASINS:
+A) Western (Mediterranean) Drainage System:
+   - Includes Abbay (Blue Nile), Tekeze (Atbara), and Baro-Akobo.
+   - Accounts for over 70% of the country's total annual water discharge.
+   - Flows westward into the White Nile and empties into the Mediterranean Sea.
+B) Southeastern (Indian Ocean) Drainage System:
+   - Includes Wabi Shebelle and Genale-Dawa.
+   - Wabi Shebelle is the longest river in Ethiopia (~1,340 km within Ethiopia) but fails to reach the Indian Ocean in dry seasons.
+C) Rift Valley (Internal) Drainage System:
+   - Includes the Awash River, Omo-Gibe, and Rift Valley crater and tectonic lakes (Ziway, Langano, Abijatta, Shala, Awassa, Chamo, Abaya).
+   - Awash terminates in Lake Abbe on the Djibouti border without reaching any ocean.`,
+  },
+  {
+    id: 'doc-hist-unit3',
+    title: 'Grade12_History_Unit3_Summary.pdf',
+    subject: 'History',
+    subjectId: 'g12_geo',
+    level: 'grade_12_social',
+    chapter: 'Unit 3: Modern Ethiopian State Formation & Foreign Relations',
+    category: 'Teacher Summary',
+    fileType: 'PDF',
+    pages: 44,
+    fileSize: '4.2 MB',
+    uploadedBy: 'National History Panel',
+    uploadDate: '2026-02-05',
+    bookmarked: true,
+    downloadsCount: 0,
+    fullExcerpt: `ETHIOPIAN HISTORY REVISION COMPENDIUM: GRADE 12
+UNIT 3: STATE FORMATION, SOVEREIGNTY & BATTLE OF ADWA
+
+1. THE UNIFICATION OF THE MODERN EMPIRE:
+- Tewodros II (1855-1868): Initiated the modern centralization drive, ending the Zemene Mesafint (Era of Princes).
+- Yohannes IV (1872-1889): Defended territorial sovereignty against Egyptian expansionism (Gundet 1875, Gura 1876) and Mahdist incursions (Metemma 1889).
+- Menelik II (1889-1913): Completed state incorporation of southern and western provinces, founded Addis Ababa, and modernized infrastructure (Franco-Ethiopian railway, modern schools, telecommunications).
+
+2. THE TREATY OF WUCHALE & BATTLE OF ADWA (1896):
+- Article XVII controversy: Amharic text made diplomatic representation optional ("Ethiopia may use the government of Italy"), whereas the Italian text made it mandatory ("consents to use"), claiming a protectorate.
+- Menelik II abrogated the treaty in 1893 after diplomatic protests failed.
+- On March 1, 1896, the Ethiopian army decisively defeated General Baratieri's Italian forces at the Battle of Adwa.
+- Significance: Guaranteed Ethiopian national sovereignty and served as a global symbol of anti-colonial resistance and Pan-African pride.`,
+  },
+  {
+    id: 'doc-cs-exit',
+    title: 'Exit_Exam_CS_Core_Compendium.pdf',
+    subject: 'Computer Science & Software Eng.',
+    subjectId: 'exit_cs_se',
+    level: 'university_exit',
+    chapter: 'Relational Databases, Normalization & High-Concurrency Systems',
+    category: 'Exit Exam Guide',
+    fileType: 'PDF',
+    pages: 72,
+    fileSize: '7.4 MB',
+    uploadedBy: 'Ministry of Education (Higher Education Dept.)',
+    uploadDate: '2026-01-10',
+    bookmarked: true,
+    downloadsCount: 0,
+    fullExcerpt: `NATIONAL UNIVERSITY EXIT EXAMINATION: COMPUTER SCIENCE & SOFTWARE ENGINEERING
+CORE DOMAIN: DATABASE SYSTEMS & SYSTEM ARCHITECTURES
+
+1. DATABASE NORMALIZATION CHEATSHEET:
+- 1NF: Atomic values; eliminates repeating groups or composite attributes.
+- 2NF: In 1NF and no non-prime attribute is partially dependent on any candidate key (eliminates partial key dependency).
+- 3NF: In 2NF and no non-prime attribute is transitively dependent on any candidate key (eliminates transitive dependencies).
+- BCNF: Every determinant in a functional dependency X -> Y must be a superkey.
+
+2. CONCURRENCY CONTROL & ACID GUARANTEES:
+- Atomicity: All operations in a transaction succeed or all fail together.
+- Consistency: Database transitions from one valid state to another valid state preserving constraints.
+- Isolation: Concurrent transactions execute without cross-interference (Read Uncommitted, Read Committed, Repeatable Read, Serializable).
+- Durability: Once committed, updates persist even across system crashes via Write-Ahead Logging (WAL).
+
+3. DISTRIBUTED ARCHITECTURES & CACHING:
+- CAP Theorem: A distributed system can guarantee at most two out of Consistency, Availability, and Partition Tolerance.
+- Cache Invalidation Strategies: Cache-Aside (Lazy loading), Write-Through (Sync write to cache and DB), Write-Behind (Async DB write).`,
+  },
+  {
+    id: 'doc-g8-math',
+    title: 'Grade_8_Math_Formulas_Amharic_English.pdf',
+    subject: 'Mathematics',
+    subjectId: 'g8_math',
+    level: 'grade_8',
+    chapter: 'Regional Ministry Exam Mathematical Formulas & Shortcuts',
+    category: 'Formula Sheet',
+    fileType: 'PDF',
+    pages: 26,
+    fileSize: '2.1 MB',
+    uploadedBy: 'Regional Education Bureau',
+    uploadDate: '2025-11-20',
+    bookmarked: true,
+    downloadsCount: 0,
+    fullExcerpt: `GRADE 8 MINISTRY EXAMINATION MATHEMATICS SHORTCUTS & FORMULA HANDBOOK
+(በአማርኛ እና በእንግሊዝኛ የተዘጋጀ የቀመር እና የማስያ ዘዴዎች መመሪያ)
+
+1. ALGEBRA & LINEAR EQUATIONS (አልጀብራ እና ቀጥተኛ እኩልታዎች):
+- Linear equation in one variable: ax + b = c => x = (c - b) / a.
+- Linear inequalities: When multiplying or dividing both sides by a NEGATIVE number, REVERSE the inequality sign!
+  Example: -3x < 12 => x > -4.
+
+2. RATIO, PROPORTION & SPEED (ንፅፅር እና ፍጥነት):
+- Speed = Distance / Time (ርቀት = ፍጥነት × ጊዜ).
+- Work Rate: If Person A completes a job in 4 hours and Person B in 6 hours, combined time = (4 × 6) / (4 + 6) = 24 / 10 = 2.4 hours.
+
+3. GEOMETRY & MENSURATION (ጂኦሜትሪ እና ስፋት/ዙሪያ):
+- Rectangle: Area = l × w; Perimeter = 2(l + w).
+- Triangle: Area = 1/2 × base × height.
+- Trapezoid: Area = 1/2 × (a + b) × h.
+- Circle: Area = πr²; Circumference = 2πr (use π = 22/7 or 3.14).
+- Pythagorean Theorem: a² + b² = c² in any right-angled triangle. Key Pythagorean triplets: (3, 4, 5), (5, 12, 13), (8, 15, 17).`,
   },
   {
     id: 'doc-chem-slides',
@@ -810,7 +969,7 @@ export const DOCUMENTS_DATA: DocumentMaterial[] = [
     uploadedBy: 'Dr. Helen Vance',
     uploadDate: '2026-02-20',
     bookmarked: false,
-    downloadsCount: 12900,
+    downloadsCount: 0,
     fullExcerpt: `CHEMISTRY SLIDES: REACTION MECHANISMS AND EQUILIBRIA
 Slide 1: Classification of Chemical Reactions (Redox, Acid-Base, Precipitation).
 Slide 2: Reaction Rate Laws: rate = k [A]^m [B]^n.
@@ -832,7 +991,7 @@ Slide 5: Buffer solutions and Henderson-Hasselbalch calculation.`,
     uploadedBy: 'National Biology Committee',
     uploadDate: '2026-02-18',
     bookmarked: true,
-    downloadsCount: 17300,
+    downloadsCount: 0,
     fullExcerpt: `BIOLOGY COMPREHENSIVE STUDY GUIDE: CELL ORGANELLES & MOLECULAR GENETICS
 - Cell membrane lipid bilayer: phospholipids, cholesterol, peripheral and integral proteins.
 - Cellular respiration pathways: Glycolysis (cytosol), Krebs Cycle (matrix), Electron Transport Chain (cristae).
@@ -853,143 +1012,13 @@ Slide 5: Buffer solutions and Henderson-Hasselbalch calculation.`,
     uploadedBy: 'Educational Assessment Agency',
     uploadDate: '2026-01-15',
     bookmarked: true,
-    downloadsCount: 31000,
+    downloadsCount: 0,
     fullExcerpt: `NATIONAL EXAMINATION OFFICIAL PAST PAPER (2022 G.C.)
 Contains 100 authenticated multiple-choice questions with answer key and distribution analysis:
 - Section A: Mechanics & Waves (Questions 1 - 30)
 - Section B: Electromagnetism & Optics (Questions 31 - 65)
 - Section C: Thermodynamics & Modern Physics (Questions 66 - 100)
 Includes full answer rationale and examiner notes for Grade 12 students.`,
-  },
-  {
-    id: 'doc-1',
-    title: 'Grade 12 Physics Unit 4: Complete Electromagnetism & AC Circuits Booklet',
-    subject: 'Physics',
-    subjectId: 'g12_physics',
-    level: 'grade_12_natural',
-    chapter: 'Unit 4: Electromagnetism',
-    category: 'Teacher Summary',
-    fileType: 'PDF',
-    pages: 42,
-    fileSize: '4.8 MB',
-    uploadedBy: 'Ministry Curriculum Specialist Group',
-    uploadDate: '2026-02-15',
-    bookmarked: true,
-    downloadsCount: 14820,
-    fullExcerpt: `ETHIOPIAN SECONDARY SCHOOL LEAVING CERTIFICATE EXAMINATION (ESSLCE)
-GRADE 12 PHYSICS MODULE: UNIT 4 ELECTROMAGNETISM
-
-SECTION 1: MAGNETIC FIELDS AND FORCES
-When an electric charge q moves with velocity v through a magnetic field B at angle θ, it experiences the Lorentz magnetic force given by:
-F_B = q(v × B) = q · v · B · sin(θ).
-Key observations:
-1. If the charge moves parallel to the magnetic field (θ = 0° or 180°), the magnetic force is identically zero.
-2. The magnetic force is always perpendicular to both the velocity vector and the magnetic field. Consequently, magnetic forces do ZERO work on charged particles, meaning kinetic energy and speed remain constant.
-
-SECTION 2: FARADAY'S LAW & INDUCED CURRENT
-Magnetic flux Φ_B through a planar surface of area A is defined as:
-Φ_B = ∫ B · dA = B · A · cos(θ).
-Faraday discovered that whenever magnetic flux linking a circuit changes over time, an electromotive force (EMF) is induced:
-ε = -N · (dΦ_B / dt).
-Lenz's law provides the physical justification for the negative sign: the induced current flows in a direction such that its own magnetic field opposes the change in flux that produced it (Conservation of Energy).
-
-SECTION 3: AC GENERATORS & TRANSFORMERS
-An alternating current generator converts mechanical energy into electrical energy by rotating a coil in a magnetic field. The instantaneous induced EMF is:
-ε(t) = ε_max · sin(ωt) = (N · B · A · ω) · sin(ωt).
-In an ideal transformer:
-V_p / V_s = N_p / N_s = I_s / I_p.
-Efficiency η = (P_out / P_in) × 100%.`,
-  },
-  {
-    id: 'doc-2',
-    title: 'Ethiopian University Exit Exam: Computer Science Core Syllabus & Model Exam 2024',
-    subject: 'Computer Science & Software Eng.',
-    subjectId: 'exit_cs_se',
-    level: 'university_exit',
-    chapter: 'All Exit Exam Domains',
-    category: 'Exit Exam Guide',
-    fileType: 'PDF',
-    pages: 86,
-    fileSize: '9.2 MB',
-    uploadedBy: 'Ministry of Education (Higher Education Dept.)',
-    uploadDate: '2026-01-10',
-    bookmarked: true,
-    downloadsCount: 22400,
-    fullExcerpt: `HIGHER EDUCATION RELEVANCE AND QUALITY AGENCY (HERQA) / MoE
-NATIONAL UNIVERSITY EXIT EXAMINATION GUIDELINE FOR COMPUTER SCIENCE & SOFTWARE ENGINEERING
-
-Core Competency Domains Evaluated:
-1. Programming & Software Engineering (OOP, Software Architecture, Agile, Design Patterns, Testing)
-2. Data Structures & Algorithms (Trees, Graphs, Sorting, Dynamic Programming, Asymptotic Notation)
-3. Database Management Systems (ER Modeling, Relational Algebra, SQL, Normalization up to BCNF, Concurrency Control)
-4. Operating Systems & System Programming (Process Synchronization, Deadlock handling, Virtual Memory, Paging)
-5. Computer Networks & Distributed Systems (OSI/TCP-IP stacks, Routing protocols, Subnetting, Network Security)
-
-EXAM STRUCTURE:
-- 100 Multiple Choice Questions (MCQs)
-- Time allocated: 3 Hours (180 Minutes)
-- Passing threshold: 50% minimum overall score.`,
-  },
-  {
-    id: 'doc-3',
-    title: 'Grade 8 Regional Ministry Examination: 5-Year Past Papers Collection (2019-2023 G.C.)',
-    subject: 'General Science',
-    subjectId: 'g8_science',
-    level: 'grade_8',
-    chapter: 'Ministry Exam Review',
-    category: 'Ministry Past Papers',
-    fileType: 'PDF',
-    pages: 58,
-    fileSize: '6.1 MB',
-    uploadedBy: 'Regional Education Bureau',
-    uploadDate: '2025-11-20',
-    bookmarked: false,
-    downloadsCount: 11200,
-    fullExcerpt: `REGIONAL EDUCATION BUREAU - GRADE 8 MINISTRY EXAMINATION ARCHIVE
-SUBJECT: GENERAL SCIENCE (BIOLOGY, CHEMISTRY, PHYSICS)
-
-UNIT HIGHLIGHTS:
-- Cell theory: All living organisms are composed of cells; the cell is the basic structural and functional unit of life.
-- Photosynthesis equation: 6CO2 + 6H2O + Sunlight -> C6H12O6 + 6O2.
-- Newton's Laws of Motion:
-  * First Law (Inertia): An object remains at rest or in uniform motion unless acted upon by an external unbalanced force.
-  * Second Law: F_net = m · a.
-  * Third Law: For every action, there is an equal and opposite reaction.
-- Common chemical separation techniques: Filtration, Evaporation, Distillation, Chromatography.`,
-  },
-  {
-    id: 'doc-4',
-    title: 'Grade 12 Mathematics: Calculus Quick Formula Sheet & Theorems (ESSLCE Special)',
-    subject: 'Mathematics (Natural)',
-    subjectId: 'g12_math_nat',
-    level: 'grade_12_natural',
-    chapter: 'Calculus (Limits, Derivatives, Integrals)',
-    category: 'Formula Sheet',
-    fileType: 'PDF',
-    pages: 14,
-    fileSize: '1.9 MB',
-    uploadedBy: 'Addis Ababa Mathematics Teachers Association',
-    uploadDate: '2026-03-01',
-    bookmarked: true,
-    downloadsCount: 19350,
-    fullExcerpt: `ESSLCE MATHEMATICS NATURAL SCIENCE CRACKER
-DIFFERENTIAL AND INTEGRAL CALCULUS FORMULA COMPENDIUM
-
-1. LIMIT THEOREMS & L'HÔPITAL'S RULE:
-- lim(x->0) [sin(kx) / x] = k
-- lim(x->0) [(1 - cos(x)) / x] = 0
-- lim(x->∞) (1 + 1/x)^x = e
-- If lim f(x)/g(x) results in indeterminate forms 0/0 or ∞/∞, apply L'Hôpital: lim f'(x) / g'(x).
-
-2. DERIVATIVE RULES:
-- Product Rule: (uv)' = u'v + uv'
-- Quotient Rule: (u/v)' = (u'v - uv') / v²
-- Chain Rule: d/dx [f(g(x))] = f'(g(x)) · g'(x)
-- d/dx [ln(x)] = 1/x, d/dx [e^(kx)] = k · e^(kx)
-
-3. INTEGRATION APPLIED:
-- Area between curves y = f(x) and y = g(x) from a to b: A = ∫_a^b |f(x) - g(x)| dx
-- Volume of solid of revolution (Disk Method): V = π ∫_a^b [f(x)]² dx.`,
   },
 ];
 
@@ -1310,5 +1339,266 @@ export const INITIAL_TOPIC_MASTERY: TopicMastery[] = [
     status: 'moderate',
     lastPracticed: 'Today',
     suggestedAction: 'Practice negative coefficient reversals in inequalities.',
+  },
+];
+
+export const NATIONAL_EXAMS_DATA: ExamCardInfo[] = [
+  // Grade 12 Natural Science
+  {
+    id: 'exam-esslce-phy-2016',
+    title: '2016 E.C. ESSLCE Physics National Examination',
+    subjectId: 'g12_physics',
+    subjectName: 'Physics (Natural)',
+    level: 'grade_12_natural',
+    questionCount: 50,
+    durationMinutes: 90,
+    difficulty: 'Hard',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 14200,
+    passRate: 74,
+    description: 'Official Ethiopian Ministry of Education national examination paper covering 2D mechanics, electromagnetism, and optics.',
+    isFeatured: true,
+  },
+  {
+    id: 'exam-esslce-math-nat-2016',
+    title: '2016 E.C. ESSLCE Mathematics (Natural) Examination',
+    subjectId: 'g12_math_nat',
+    subjectName: 'Mathematics (Natural)',
+    level: 'grade_12_natural',
+    questionCount: 60,
+    durationMinutes: 120,
+    difficulty: 'Hard',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 16800,
+    passRate: 68,
+    description: 'Complete calculus, coordinate geometry, vectors, matrices, and series based on the latest Ethiopian syllabus.',
+    isFeatured: true,
+  },
+  {
+    id: 'exam-esslce-chem-2015',
+    title: '2015 E.C. ESSLCE Chemistry National Paper',
+    subjectId: 'g12_chemistry',
+    subjectName: 'Chemistry (Natural)',
+    level: 'grade_12_natural',
+    questionCount: 50,
+    durationMinutes: 90,
+    difficulty: 'Medium',
+    examType: 'National Past Paper',
+    year: '2015 E.C. (2023)',
+    totalAttempts: 11900,
+    passRate: 81,
+    description: 'Thermodynamics, chemical equilibrium, rate laws, electrochemistry, and organic chemistry problem set.',
+  },
+  {
+    id: 'exam-esslce-bio-2016',
+    title: '2016 E.C. ESSLCE Biology National Examination',
+    subjectId: 'g12_biology',
+    subjectName: 'Biology (Natural)',
+    level: 'grade_12_natural',
+    questionCount: 50,
+    durationMinutes: 80,
+    difficulty: 'Medium',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 13500,
+    passRate: 83,
+    description: 'Cell biology, genetics, enzymes, human physiology, ecology, and biotechnology questions.',
+  },
+  {
+    id: 'exam-sat-mock-1',
+    title: 'Scholastic Aptitude (SAT) Full Mock Paper 1',
+    subjectId: 'g12_aptitude',
+    subjectName: 'Scholastic Aptitude',
+    level: 'grade_12_natural',
+    questionCount: 40,
+    durationMinutes: 60,
+    difficulty: 'Hard',
+    examType: 'Full Mock Exam',
+    year: '2016 E.C. Mock',
+    totalAttempts: 9800,
+    passRate: 72,
+    description: 'High-speed verbal analogies, number pattern sequences, deductive reasoning, and data sufficiency.',
+    isFeatured: true,
+  },
+  {
+    id: 'exam-nat-all-mock',
+    title: 'Grade 12 Natural Science Grand National Mock',
+    subjectId: 'all_mock',
+    subjectName: 'Comprehensive Mock',
+    level: 'grade_12_natural',
+    questionCount: 60,
+    durationMinutes: 100,
+    difficulty: 'Hard',
+    examType: 'Full Mock Exam',
+    year: '2016 E.C. Mock',
+    totalAttempts: 21000,
+    passRate: 65,
+    description: 'Full simulation mixing Physics, Math, Chemistry, Biology, and SAT questions for authentic national rank prediction.',
+    isFeatured: true,
+  },
+
+  // Grade 12 Social Science
+  {
+    id: 'exam-esslce-econ-2016',
+    title: '2016 E.C. ESSLCE Economics National Examination',
+    subjectId: 'g12_economics',
+    subjectName: 'Economics (Social)',
+    level: 'grade_12_social',
+    questionCount: 50,
+    durationMinutes: 90,
+    difficulty: 'Medium',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 8400,
+    passRate: 79,
+    description: 'Supply & demand elasticity, production theory, macroeconomic equilibrium, and fiscal policy analysis.',
+    isFeatured: true,
+  },
+  {
+    id: 'exam-esslce-hist-2016',
+    title: '2016 E.C. ESSLCE History National Examination',
+    subjectId: 'g12_history',
+    subjectName: 'History (Social)',
+    level: 'grade_12_social',
+    questionCount: 50,
+    durationMinutes: 90,
+    difficulty: 'Medium',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 9100,
+    passRate: 76,
+    description: '19th & 20th century Ethiopian state formation, the Battle of Adwa, anti-colonial movements, and global wars.',
+    isFeatured: true,
+  },
+  {
+    id: 'exam-esslce-geog-2015',
+    title: '2015 E.C. ESSLCE Geography National Examination',
+    subjectId: 'g12_geography',
+    subjectName: 'Geography (Social)',
+    level: 'grade_12_social',
+    questionCount: 50,
+    durationMinutes: 80,
+    difficulty: 'Medium',
+    examType: 'National Past Paper',
+    year: '2015 E.C. (2023)',
+    totalAttempts: 7800,
+    passRate: 82,
+    description: 'Contour topographic map reading, Ethiopian relief systems, weather classification, and demographic dynamics.',
+  },
+  {
+    id: 'exam-social-all-mock',
+    title: 'Grade 12 Social Science Grand National Mock',
+    subjectId: 'all_mock',
+    subjectName: 'Comprehensive Mock',
+    level: 'grade_12_social',
+    questionCount: 50,
+    durationMinutes: 90,
+    difficulty: 'Hard',
+    examType: 'Full Mock Exam',
+    year: '2016 E.C. Mock',
+    totalAttempts: 12400,
+    passRate: 71,
+    description: 'Full simulation testing Economics, History, Geography, and General English in standardized exam conditions.',
+    isFeatured: true,
+  },
+
+  // Grade 8 Ministry
+  {
+    id: 'exam-g8-math-2016',
+    title: '2016 E.C. Grade 8 Regional Ministry Mathematics',
+    subjectId: 'g8_math',
+    subjectName: 'Mathematics',
+    level: 'grade_8',
+    questionCount: 40,
+    durationMinutes: 60,
+    difficulty: 'Medium',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 18200,
+    passRate: 84,
+    description: 'Rational numbers, linear inequalities, plane geometry, and ratios prepared for the primary school leaving certificate.',
+    isFeatured: true,
+  },
+  {
+    id: 'exam-g8-sci-2016',
+    title: '2016 E.C. Grade 8 General Science Ministry Paper',
+    subjectId: 'g8_science',
+    subjectName: 'General Science',
+    level: 'grade_8',
+    questionCount: 40,
+    durationMinutes: 60,
+    difficulty: 'Medium',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 17500,
+    passRate: 88,
+    description: 'Human organ systems, cells, matter, heat, light, sound, and Ethiopian ecosystem conservation.',
+    isFeatured: true,
+  },
+  {
+    id: 'exam-g8-eng-2016',
+    title: '2016 E.C. Grade 8 English Regional Ministry Exam',
+    subjectId: 'g8_english',
+    subjectName: 'English',
+    level: 'grade_8',
+    questionCount: 40,
+    durationMinutes: 60,
+    difficulty: 'Easy',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 15900,
+    passRate: 91,
+    description: 'Ministry reading comprehension passages, grammar tenses, voice, prepositions, and vocabulary.',
+  },
+  {
+    id: 'exam-g8-social-2015',
+    title: '2015 E.C. Grade 8 Social Studies Ministry Exam',
+    subjectId: 'g8_social',
+    subjectName: 'Social Studies',
+    level: 'grade_8',
+    questionCount: 40,
+    durationMinutes: 60,
+    difficulty: 'Easy',
+    examType: 'National Past Paper',
+    year: '2015 E.C. (2023)',
+    totalAttempts: 14100,
+    passRate: 89,
+    description: 'Geography of the Horn of Africa, medieval Ethiopian history, and fundamental constitutional civic values.',
+  },
+
+  // University Exit Exam
+  {
+    id: 'exam-exit-cs-2016',
+    title: 'MoE National University Exit Exam: Computer Science & Software Engineering',
+    subjectId: 'exit_cs_se',
+    subjectName: 'Computer Science',
+    level: 'university_exit',
+    questionCount: 60,
+    durationMinutes: 120,
+    difficulty: 'Hard',
+    examType: 'National Past Paper',
+    year: '2016 E.C. (2024)',
+    totalAttempts: 8900,
+    passRate: 70,
+    description: 'Data Structures & Algorithms, Database Systems, Software Engineering, OOP, Networking, and Operating Systems.',
+    isFeatured: true,
+  },
+  {
+    id: 'exam-exit-cs-mock',
+    title: 'University Exit Exam Comprehensive Mock Drill',
+    subjectId: 'exit_cs_se',
+    subjectName: 'Computer Science',
+    level: 'university_exit',
+    questionCount: 50,
+    durationMinutes: 90,
+    difficulty: 'Hard',
+    examType: 'Full Mock Exam',
+    year: '2016 E.C. Mock',
+    totalAttempts: 6400,
+    passRate: 67,
+    description: 'Timed drill simulating the Ministry of Education centralized computer-based testing (CBT) platform format.',
+    isFeatured: true,
   },
 ];

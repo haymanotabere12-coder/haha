@@ -48,6 +48,9 @@ export interface LiveRoomInfo {
   stageMode: string;
   currentSlideIndex: number;
   isBroadcasting: boolean;
+  videoUrl?: string | null;
+  youtubeId?: string | null;
+  videoTitle?: string | null;
   users: Record<string, LiveRoomParticipant>;
   userCount: number;
   messages: any[];
@@ -62,9 +65,21 @@ export type LiveStreamEventCallback = {
   onRemoteStream?: (stream: MediaStream) => void;
   onVideoFrame?: (frameBase64: string) => void;
   onAudioChunk?: (chunkBase64: string) => void;
-  onStageUpdated?: (info: { stageMode: string; currentSlideIndex: number }) => void;
+  onStageUpdated?: (info: {
+    stageMode: string;
+    currentSlideIndex: number;
+    videoUrl?: string | null;
+    youtubeId?: string | null;
+    videoTitle?: string | null;
+  }) => void;
+  onVideoControl?: (data: { action: 'play' | 'pause' | 'seek'; currentTime: number }) => void;
   onWhiteboardStroke?: (data: { stroke: any; target?: string }) => void;
   onChatMessage?: (message: any) => void;
+  onChatReaction?: (data: { messageId: string; emoji: string; reactions: Record<string, number>; upvotes: number }) => void;
+  onChatPin?: (data: { messageId: string; isPinned: boolean }) => void;
+  onChatAnswer?: (data: { messageId: string; isAnswered: boolean; teacherAnswer?: string; answeredBy?: string; answeredAt?: string }) => void;
+  onChatDelete?: (data: { messageId: string }) => void;
+  onChatEdit?: (data: { messageId: string; text: string }) => void;
 };
 
 export class LiveClassroomClient {
@@ -212,6 +227,10 @@ export class LiveClassroomClient {
         this.callbacks.onStageUpdated?.(data);
         break;
 
+      case 'video:control':
+        this.callbacks.onVideoControl?.(data);
+        break;
+
       case 'video:frame':
         this.callbacks.onVideoFrame?.(data.frame);
         break;
@@ -226,6 +245,26 @@ export class LiveClassroomClient {
 
       case 'chat:message':
         this.callbacks.onChatMessage?.(data.message);
+        break;
+
+      case 'chat:reaction':
+        this.callbacks.onChatReaction?.(data);
+        break;
+
+      case 'chat:pin':
+        this.callbacks.onChatPin?.(data);
+        break;
+
+      case 'chat:answer':
+        this.callbacks.onChatAnswer?.(data);
+        break;
+
+      case 'chat:delete':
+        this.callbacks.onChatDelete?.(data);
+        break;
+
+      case 'chat:edit':
+        this.callbacks.onChatEdit?.(data);
         break;
     }
   }
@@ -467,12 +506,26 @@ export class LiveClassroomClient {
     }
   }
 
-  // Sync stage mode and slide index
-  public updateStage(stageMode: string, currentSlideIndex: number) {
+  // Sync stage mode, slide index, and optional attached lesson video
+  public updateStage(
+    stageMode: string,
+    currentSlideIndex: number,
+    extra?: { videoUrl?: string | null; youtubeId?: string | null; videoTitle?: string | null }
+  ) {
     this.send({
       type: 'stage:update',
       stageMode,
       currentSlideIndex,
+      ...(extra || {}),
+    });
+  }
+
+  // Sync teacher's lesson video play/pause/seek with students in the room
+  public sendVideoControl(action: 'play' | 'pause' | 'seek', currentTime: number) {
+    this.send({
+      type: 'video:control',
+      action,
+      currentTime,
     });
   }
 
@@ -485,10 +538,55 @@ export class LiveClassroomClient {
     });
   }
 
-  // Send chat message
-  public sendChatMessage(text: string) {
+  // Send chat message (supports object or text)
+  public sendChatMessage(message: any) {
     this.send({
       type: 'chat:message',
+      message: typeof message === 'string' ? { text: message } : message,
+    });
+  }
+
+  // Send message reaction / upvote
+  public sendChatReaction(messageId: string, emoji: string) {
+    this.send({
+      type: 'chat:reaction',
+      messageId,
+      emoji,
+    });
+  }
+
+  // Pin / unpin message (teacher moderation)
+  public sendChatPin(messageId: string, isPinned: boolean) {
+    this.send({
+      type: 'chat:pin',
+      messageId,
+      isPinned,
+    });
+  }
+
+  // Answer academic question (teacher response)
+  public sendChatAnswer(messageId: string, isAnswered: boolean, teacherAnswer?: string) {
+    this.send({
+      type: 'chat:answer',
+      messageId,
+      isAnswered,
+      teacherAnswer,
+    });
+  }
+
+  // Delete message
+  public sendChatDelete(messageId: string) {
+    this.send({
+      type: 'chat:delete',
+      messageId,
+    });
+  }
+
+  // Edit message
+  public sendChatEdit(messageId: string, text: string) {
+    this.send({
+      type: 'chat:edit',
+      messageId,
       text,
     });
   }
@@ -527,7 +625,7 @@ export class LiveClassroomClient {
   }
 }
 
-// Server Recordings API Client: Upload, fetch, and delete recordings across all devices
+// Server Recordings & Video Upload Client: Upload, fetch, and delete videos across all devices
 export async function uploadRecordedVideoToServer(payload: {
   id: string;
   title: string;
@@ -538,8 +636,36 @@ export async function uploadRecordedVideoToServer(payload: {
   blob: Blob;
   chapter?: string;
   keyTakeaways?: string[];
+  isLiveRecording?: boolean;
+  archiveInLibrary?: boolean;
 }): Promise<string | null> {
   try {
+    const mimeType = payload.blob.type || 'video/mp4';
+    const params = new URLSearchParams({
+      id: payload.id,
+      title: payload.title,
+      subject: payload.subject,
+      instructor: payload.instructor,
+      duration: payload.duration,
+      level: payload.level,
+      chapter: payload.chapter || 'Curriculum Video Lesson',
+      mimeType,
+      isLiveRecording: String(payload.isLiveRecording !== undefined ? payload.isLiveRecording : true),
+      archive: String(payload.archiveInLibrary !== undefined ? payload.archiveInLibrary : true),
+    });
+
+    const rawRes = await fetch(`/api/videos/upload?${params.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': mimeType },
+      body: payload.blob,
+    });
+
+    if (rawRes.ok) {
+      const data = await rawRes.json();
+      return data.streamUrl || `/api/recordings/stream/${payload.id}`;
+    }
+
+    // Fallback to JSON base64 upload
     const reader = new FileReader();
     const base64Promise = new Promise<string>((resolve, reject) => {
       reader.onload = () => resolve(reader.result as string);
@@ -560,6 +686,9 @@ export async function uploadRecordedVideoToServer(payload: {
         level: payload.level,
         chapter: payload.chapter,
         keyTakeaways: payload.keyTakeaways,
+        mimeType,
+        isLiveRecording: payload.isLiveRecording !== undefined ? payload.isLiveRecording : true,
+        archiveInLibrary: payload.archiveInLibrary !== undefined ? payload.archiveInLibrary : true,
         videoBase64,
         timestamp: new Date().toISOString(),
       }),
@@ -570,7 +699,7 @@ export async function uploadRecordedVideoToServer(payload: {
       return data.streamUrl || `/api/recordings/stream/${payload.id}`;
     }
   } catch (err) {
-    console.warn('Could not upload recording to server:', err);
+    console.warn('Could not upload video to server:', err);
   }
   return null;
 }

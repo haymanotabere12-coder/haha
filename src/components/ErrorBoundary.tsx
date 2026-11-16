@@ -43,6 +43,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      let isAm = false;
+      try {
+        isAm = localStorage.getItem('ethio_exam_language') === 'am';
+      } catch {}
+
       return (
         <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-6 antialiased selection:bg-emerald-500 selection:text-white">
           <div className="max-w-lg w-full bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-md text-center space-y-6">
@@ -52,16 +57,18 @@ export class ErrorBoundary extends Component<Props, State> {
 
             <div className="space-y-2">
               <h2 className="text-xl font-bold text-white tracking-tight">
-                የስርዓት ማገገሚያ ገጽ (System Recovery)
+                {isAm ? 'የስርዓት ማገገሚያ ገጽ' : 'System Recovery'}
               </h2>
               <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                በመተግበሪያው ውስጥ ያልተጠበቀ ስህተት አጋጥሟል። እባክዎ ከታች ያሉትን የማስተካከያ አዝራሮች በመጫን ገጹን ዳግም ያስጀምሩ።
+                {isAm
+                  ? 'በመተግበሪያው ውስጥ ያልተጠበቀ ስህተት አጋጥሟል። እባክዎ ከታች ያሉትን የማስተካከያ አዝራሮች በመጫን ገጹን ዳግም ያስጀምሩ።'
+                  : 'An unexpected error occurred in the application. Please use the recovery options below to reload or reset the session.'}
               </p>
             </div>
 
             {this.state.error && (
               <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-700 text-left font-mono text-[11px] text-rose-300 overflow-x-auto max-h-32">
-                <span className="text-slate-500 block mb-1">ስህተት (Error Details):</span>
+                <span className="text-slate-500 block mb-1">{isAm ? 'የስህተት ዝርዝር፦' : 'Error Details:'}</span>
                 {this.state.error.message || String(this.state.error)}
               </div>
             )}
@@ -73,7 +80,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
               >
                 <RefreshCw className="w-4 h-4" />
-                <span>ገጹን ዳግም ጫን (Reload)</span>
+                <span>{isAm ? 'ገጹን ዳግም ጫን' : 'Reload Page'}</span>
               </button>
 
               <button
@@ -82,7 +89,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 className="py-3 px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs sm:text-sm border border-slate-600 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
               >
                 <Trash2 className="w-4 h-4 text-amber-400" />
-                <span>መሸጎጫ አጽዳና ጀምር (Clear & Reset)</span>
+                <span>{isAm ? 'መሸጎጫ አጽዳና ጀምር' : 'Clear Cache & Reset'}</span>
               </button>
             </div>
           </div>

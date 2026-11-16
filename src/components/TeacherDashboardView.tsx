@@ -14,17 +14,20 @@ import {
   Award,
   Radio
 } from 'lucide-react';
-import { ActiveTab, LiveClass } from '../types';
+import { ActiveTab, LiveClass, Language } from '../types';
 
 interface TeacherDashboardViewProps {
   onNavigate: (tab: ActiveTab) => void;
   onStartLive: () => void;
+  language?: Language;
 }
 
 export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
   onNavigate,
   onStartLive,
+  language = 'en',
 }) => {
+  const isAm = language === 'am';
   const upcomingClasses = [
     { id: 'c1', subject: 'Mathematics - Grade 12', time: 'Today • 10:00 AM', enrolled: 214, isNow: true },
     { id: 'c2', subject: 'Physics - University Prep', time: 'Today • 2:00 PM', enrolled: 180, isNow: false },
@@ -58,15 +61,8 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
 
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-600 font-semibold bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
-            Welcome, <strong>Ms. Sarah (Teacher)</strong>
+            {isAm ? 'የመምህር ዳሽቦርድ' : 'Teacher Console'}
           </span>
-          <button
-            onClick={onStartLive}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-xs transition cursor-pointer active:scale-95"
-          >
-            <Radio className="w-4 h-4 animate-pulse" />
-            <span>Go Live</span>
-          </button>
         </div>
       </div>
 
@@ -117,7 +113,7 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
         </button>
       </div>
 
-      {/* Upcoming Classes & Recent Students - Exact layout from Learnova screenshot */}
+      {/* Upcoming Classes & Recent Students Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Upcoming Classes (7 cols) */}
         <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
