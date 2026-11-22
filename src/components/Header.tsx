@@ -18,7 +18,8 @@ import {
   Zap,
   HelpCircle,
   Award,
-  Globe
+  Globe,
+  UserCheck
 } from 'lucide-react';
 import { ExamLevel, AppUser, ActiveTab, Language } from '../types';
 
@@ -154,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
                 setIsMoreDropdownOpen(false);
               }}
               className={`px-3 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 ${
-                ['live_classes', 'exam_prep', 'videos', 'ai_lab'].includes(activeTab)
+                ['live_classes', 'exam_prep', 'videos', 'ai_lab', 'tutors'].includes(activeTab)
                   ? 'text-emerald-800 bg-emerald-50'
                   : 'hover:text-slate-900 hover:bg-slate-100'
               }`}
@@ -243,6 +244,26 @@ export const Header: React.FC<HeaderProps> = ({
                       <span>AI Tutor</span>
                     </div>
                     <div className="text-[10px] text-slate-500 font-normal">Instant problem explanations</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onSelectTab('tutors');
+                    setIsLearningDropdownOpen(false);
+                  }}
+                  className={`w-full text-left p-2.5 rounded-xl transition flex items-center gap-2.5 text-xs font-semibold cursor-pointer ${
+                    activeTab === 'tutors' ? 'bg-amber-50 text-amber-900 font-bold' : 'hover:bg-slate-50 text-slate-800'
+                  }`}
+                >
+                  <UserCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div className="flex-1">
+                    <div className="leading-tight flex items-center justify-between">
+                      <span>{language === 'am' ? 'የግል አስጠኚ' : 'Personal Tutor'}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-normal">
+                      {language === 'am' ? '1-ለ-1 የግል መምህር ምደባ' : '1-on-1 teacher assignment'}
+                    </div>
                   </div>
                 </button>
               </div>
@@ -606,6 +627,22 @@ export const Header: React.FC<HeaderProps> = ({
                 <Sparkles className="w-4 h-4 text-purple-600" />
                 <span>AI Tutor</span>
               </div>
+            </button>
+
+            <button
+              onClick={() => {
+                onSelectTab('tutors');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full text-left p-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between cursor-pointer ${
+                activeTab === 'tutors' ? 'bg-amber-50 text-amber-900' : 'hover:bg-slate-50 text-slate-700'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-amber-600" />
+                <span>{language === 'am' ? 'የግል አስጠኚ' : 'Personal Tutor'}</span>
+              </div>
+              {activeTab === 'tutors' && <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />}
             </button>
           </div>
 

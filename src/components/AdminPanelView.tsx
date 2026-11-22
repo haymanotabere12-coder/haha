@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   ShieldCheck, 
   PlusCircle, 
@@ -22,9 +22,13 @@ import {
   FileVideo,
   Play,
   Check,
-  AlertCircle
+  AlertCircle,
+  UserCheck,
+  RefreshCw,
+  CreditCard,
+  Lock
 } from 'lucide-react';
-import { Question, ExamLevel, SubjectInfo, LiveClass, AppUser, VideoLesson, Language } from '../types';
+import { Question, ExamLevel, SubjectInfo, LiveClass, AppUser, VideoLesson, Language, TutorAssignment, TutorTeacherOption, VideoMembership } from '../types';
 import { extractYouTubeId } from './VideoLearningView';
 import { getRegisteredUsers } from '../utils/userRegistry';
 import { saveRecordedVideoBlob } from '../utils/recordedVideoStorage';
@@ -66,7 +70,129 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
   onUpdateAnnouncement,
 }) => {
   const isAm = language === 'am';
-  const [activeAdminSubTab, setActiveAdminSubTab] = useState<'questions' | 'videos' | 'live' | 'students' | 'announcements'>('questions');
+  const [activeAdminSubTab, setActiveAdminSubTab] = useState<'questions' | 'videos' | 'live' | 'tutors' | 'students' | 'announcements'>('questions');
+
+  // Personal Tutor & Video Upgrade Approval State
+  const [tutorRequests, setTutorRequests] = useState<TutorAssignment[]>([]);
+  const [tutorTeachers, setTutorTeachers] = useState<TutorTeacherOption[]>([]);
+  const [videoUpgradeRequests, setVideoUpgradeRequests] = useState<VideoMembership[]>([]);
+  const [selectedTeacherByReq, setSelectedTeacherByReq] = useState<Record<string, string>>({});
+  const [tutorAssigningId, setTutorAssigningId] = useState<string | null>(null);
+  const [videoApprovingUserId, setVideoApprovingUserId] = useState<string | null>(null);
+  const [tutorApprovalNotice, setTutorApprovalNotice] = useState<string | null>(null);
+  const [tutorLoading, setTutorLoading] = useState<boolean>(false);
+
+  const loadTutorData = useCallback(async () => {
+    setTutorLoading(true);
+    try {
+      const [reqRes, teaRes, vidUpRes] = await Promise.all([
+        fetch('/api/tutors/my?role=admin'),
+        fetch('/api/tutors/teachers'),
+        fetch('/api/admin/video-upgrades'),
+      ]);
+      if (reqRes.ok) {
+        const d = await reqRes.json();
+        setTutorRequests(Array.isArray(d.assignments) ? d.assignments : []);
+      }
+      if (teaRes.ok) {
+        const d = await teaRes.json();
+        setTutorTeachers(Array.isArray(d.teachers) ? d.teachers : []);
+      }
+      if (vidUpRes.ok) {
+        const d = await vidUpRes.json();
+        setVideoUpgradeRequests(Array.isArray(d.upgrades) ? d.upgrades : []);
+      }
+    } catch (err) {
+      console.error('Failed to load approval requests:', err);
+    } finally {
+      setTutorLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeAdminSubTab === 'tutors') {
+      loadTutorData();
+    }
+  }, [activeAdminSubTab, loadTutorData]);
+
+  const handleAssignTeacherToRequest = async (requestId: string) => {
+    const teacherId = selectedTeacherByReq[requestId] || tutorTeachers[0]?.id;
+    const teacher = tutorTeachers.find((t) => t.id === teacherId);
+    if (!teacher) return;
+    setTutorAssigningId(requestId);
+    setTutorApprovalNotice(null);
+    try {
+      const res = await fetch(`/api/tutors/${encodeURIComponent(requestId)}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teacherId: teacher.id,
+          teacherName: teacher.name,
+          teacherSubject: teacher.subject,
+        }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.assignment) {
+          setTutorRequests((prev) => prev.map((r) => (r.id === requestId ? d.assignment : r)));
+        }
+      }
+    } finally {
+      setTutorAssigningId(null);
+    }
+  };
+
+  const handleApproveTutorRequest = async (req: TutorAssignment, approve: boolean) => {
+    const teacherId = selectedTeacherByReq[req.id] || req.assignedTeacherId || tutorTeachers[0]?.id;
+    const teacher = tutorTeachers.find((t) => t.id === teacherId);
+    setTutorAssigningId(req.id);
+    setTutorApprovalNotice(null);
+    try {
+      const res = await fetch(`/api/tutors/${encodeURIComponent(req.id)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          approve,
+          teacherId: teacher?.id || req.assignedTeacherId,
+          teacherName: teacher?.name || req.assignedTeacherName,
+          teacherSubject: teacher?.subject || req.assignedTeacherSubject,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        setTutorApprovalNotice(d?.error || 'Could not update approval.');
+        return;
+      }
+      if (d.assignment) {
+        setTutorRequests((prev) => prev.map((r) => (r.id === req.id ? d.assignment : r)));
+      }
+    } finally {
+      setTutorAssigningId(null);
+    }
+  };
+
+  const handleApproveVideoUpgrade = async (userId: string, approve: boolean) => {
+    setVideoApprovingUserId(userId);
+    setTutorApprovalNotice(null);
+    try {
+      const res = await fetch(`/api/admin/video-upgrades/${encodeURIComponent(userId)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approve }),
+      });
+      const d = await res.json();
+      if (res.ok && d.membership) {
+        setVideoUpgradeRequests((prev) => {
+          if (!approve) {
+            return prev.filter((v) => v.userId !== userId);
+          }
+          return prev.map((v) => (v.userId === userId ? { ...v, ...d.membership } : v));
+        });
+      }
+    } finally {
+      setVideoApprovingUserId(null);
+    }
+  };
 
   // Video Lessons Manager State
   const [vidTitle, setVidTitle] = useState('');
@@ -227,7 +353,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         chapter: vidChapter.trim() || 'Curriculum Topic Review',
         instructor: vidInstructor.trim() || currentUser.name,
         duration: vidDuration || '15:00',
-        views: 1,
+        views: 0,
         youtubeId: finalYoutubeId,
         videoUrl: finalVideoUrl,
         thumbnailUrl: finalYoutubeId ? `https://img.youtube.com/vi/${finalYoutubeId}/hqdefault.jpg` : undefined,
@@ -435,6 +561,18 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
         >
           <Radio className="w-3.5 h-3.5" />
           <span>Live Class Manager ({liveClasses.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveAdminSubTab('tutors')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+            activeAdminSubTab === 'tutors'
+              ? 'bg-purple-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <UserCheck className="w-3.5 h-3.5" />
+          <span>{isAm ? 'የግል አስጠኚ እና ቪዲዮ ማጽደቂያ' : 'Tutor & Video Approvals'}</span>
         </button>
 
         <button
@@ -1093,7 +1231,9 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                         {video.chapter}
                       </span>
                       <span className="font-semibold text-purple-700">
-                        {video.views.toLocaleString()} views
+                        {(video.views || 0) === 1
+                          ? '1 view'
+                          : `${(video.views || 0).toLocaleString()} views`}
                       </span>
                     </div>
                   </div>
@@ -1223,6 +1363,238 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2B. PERSONAL TUTOR & VIDEO UPGRADE APPROVALS */}
+      {activeAdminSubTab === 'tutors' && (
+        <div className="space-y-6">
+          {tutorApprovalNotice && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{tutorApprovalNotice}</span>
+            </div>
+          )}
+
+          {/* Section 1: Personal Tutor Requests & Approvals */}
+          <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  <UserCheck className="w-5 h-5 text-purple-600" />
+                  <span>{isAm ? 'የግል አስጠኚ ጥያቄዎች፣ ምደባ እና ማጽደቂያ (Approval)' : 'Personal Tutor Requests & Admin Approvals'}</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {isAm
+                    ? 'ተማሪው ከከፈለ በኋላ መምህር ይመድቡ እና Approve ይጫኑ — አድሚን Approve ሳያደርግ ተማሪው ከመምህሩ ጋር መነጋገር አይችልም።'
+                    : 'Students cannot chat with their teacher until payment is completed and Admin explicitly clicks Approve.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadTutorData}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${tutorLoading ? 'animate-spin' : ''}`} />
+                <span>{isAm ? 'አድስ' : 'Refresh'}</span>
+              </button>
+            </div>
+
+            {tutorLoading ? (
+              <div className="py-8 text-center text-xs text-slate-500">Loading tutor requests...</div>
+            ) : tutorRequests.length === 0 ? (
+              <div className="p-8 text-center space-y-2 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                <UserCheck className="w-8 h-8 text-slate-400 mx-auto" />
+                <div className="text-sm font-bold text-slate-700">
+                  {isAm ? 'እስካሁን የግል አስጠኚ ጥያቄ የለም' : 'No Personal Tutor Requests Yet'}
+                </div>
+                <p className="text-xs text-slate-500">
+                  {isAm
+                    ? 'ተማሪዎች ከ"የግል አስጠኚ" ገጽ ሲጠይቁ እዚህ ይታያሉ።'
+                    : 'Requests submitted by students from the Personal Tutor hub will appear here.'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {tutorRequests.map((req) => (
+                  <div
+                    key={req.id}
+                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-extrabold text-sm text-slate-900">{req.studentName}</span>
+                        <span className="text-xs font-semibold text-slate-500">• {req.subject}</span>
+                        <span
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                            req.isPaid
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {req.isPaid ? (
+                            <span className="inline-flex items-center gap-1">
+                              <CreditCard className="w-3 h-3" /> Paid ({req.amountBirr} ETB • {req.paymentRef || req.paymentMethod})
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> Payment Pending ({req.amountBirr} ETB)
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                            req.adminApproved
+                              ? 'bg-purple-100 text-purple-800'
+                              : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {req.adminApproved ? '✓ Approved & Unlocked' : 'Awaiting Admin Approval'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        <span className="font-semibold">Schedule:</span> {req.preferredSchedule} •{' '}
+                        <span className="font-semibold">Assigned Tutor:</span>{' '}
+                        <span className={req.assignedTeacherName ? 'text-emerald-700 font-bold' : 'text-amber-700 font-semibold'}>
+                          {req.assignedTeacherName || 'Unassigned'}
+                        </span>
+                      </div>
+                      {req.goalNote && (
+                        <div className="text-xs text-slate-500 italic">“{req.goalNote}”</div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <select
+                        value={selectedTeacherByReq[req.id] || req.assignedTeacherId || tutorTeachers[0]?.id || ''}
+                        onChange={(e) =>
+                          setSelectedTeacherByReq((prev) => ({ ...prev, [req.id]: e.target.value }))
+                        }
+                        className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-800"
+                      >
+                        {tutorTeachers.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.subject})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={tutorAssigningId === req.id || tutorTeachers.length === 0}
+                        onClick={() => handleAssignTeacherToRequest(req.id)}
+                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-xs font-bold transition cursor-pointer"
+                      >
+                        {req.assignedTeacherId ? 'Assign / Change' : 'Assign Teacher'}
+                      </button>
+                      {req.adminApproved ? (
+                        <button
+                          type="button"
+                          disabled={tutorAssigningId === req.id}
+                          onClick={() => handleApproveTutorRequest(req, false)}
+                          className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white text-xs font-bold transition cursor-pointer"
+                        >
+                          Revoke Approval
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={tutorAssigningId === req.id || !req.isPaid}
+                          onClick={() => handleApproveTutorRequest(req, true)}
+                          className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold transition cursor-pointer"
+                        >
+                          {tutorAssigningId === req.id ? 'Saving...' : 'Approve & Unlock Chat'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: Video Unlimited Upgrade Approvals */}
+          <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-xs space-y-4">
+            <div className="pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                <Film className="w-5 h-5 text-emerald-600" />
+                <span>{isAm ? 'የቪዲዮ ትምህርት ክፍያ ማረጋገጫ (Video Approvals)' : 'Video Unlimited Access Approvals'}</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isAm
+                  ? 'ተማሪዎች ከ2 ነፃ ቪዲዮዎች በኋላ ሲከፍሉ አድሚኑ Approve እስኪያደርግ ድረስ ቪዲዮዎች አይከፈቱም።'
+                  : 'Students paying for unlimited videos after their 2 free lessons wait for Admin approval here.'}
+              </p>
+            </div>
+
+            {tutorLoading ? (
+              <div className="py-6 text-center text-xs text-slate-500">Loading video upgrade requests...</div>
+            ) : videoUpgradeRequests.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                {isAm ? 'እስካሁን የቪዲዮ ክፍያ ጥያቄ የለም' : 'No student video upgrade requests yet.'}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {videoUpgradeRequests.map((up) => (
+                  <div
+                    key={up.userId}
+                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-extrabold text-sm text-slate-900">{up.userName || up.userId}</span>
+                        <span
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                            up.videoPlan === 'premium'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {up.videoPlan === 'premium' ? '✓ Approved Unlimited' : 'Pending Admin Approval'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        <span className="font-semibold">Payment:</span> {up.videoPaymentMethod || 'Telebirr'} •{' '}
+                        <span className="font-semibold">Ref:</span> {up.videoPaymentRef || 'N/A'} •{' '}
+                        <span className="font-semibold">Free Videos Used:</span> {up.freeVideosUnlockedIds?.length || 0}/2
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {up.videoPlan === 'premium' ? (
+                        <button
+                          type="button"
+                          disabled={videoApprovingUserId === up.userId}
+                          onClick={() => handleApproveVideoUpgrade(up.userId, false)}
+                          className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer transition"
+                        >
+                          Revoke Access
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            disabled={videoApprovingUserId === up.userId}
+                            onClick={() => handleApproveVideoUpgrade(up.userId, false)}
+                            className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer transition"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            type="button"
+                            disabled={videoApprovingUserId === up.userId}
+                            onClick={() => handleApproveVideoUpgrade(up.userId, true)}
+                            className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold cursor-pointer transition"
+                          >
+                            {videoApprovingUserId === up.userId ? 'Approving...' : 'Approve Videos'}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -195,8 +195,62 @@ export type ActiveTab =
   | 'documents' 
   | 'videos' 
   | 'ai_lab' 
+  | 'tutors'
   | 'analytics'
   | 'admin';
+
+export interface VideoMembership {
+  userId: string;
+  userName?: string;
+  videoPlan: 'free' | 'pending_approval' | 'premium';
+  freeVideosUnlockedIds: string[];
+  videoPaidAt?: string;
+  videoPaymentMethod?: string;
+  videoPaymentRef?: string;
+  approvedAt?: string;
+}
+
+export interface TutorTeacherOption {
+  id: string;
+  name: string;
+  subject: string;
+  gradeLevel?: string;
+  schoolOrCity?: string;
+}
+
+export interface TutorMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'student' | 'teacher' | 'admin';
+  text: string;
+  createdAt: string;
+}
+
+export interface TutorAssignment {
+  id: string;
+  studentId: string;
+  studentName: string;
+  gradeLevel: string;
+  subject: string;
+  goalNote: string;
+  preferredSchedule: string;
+  assignedTeacherId?: string;
+  assignedTeacherName?: string;
+  assignedTeacherSubject?: string;
+  isPaid: boolean;
+  adminApproved: boolean;
+  approvedAt?: string;
+  planType: 'monthly_tutor' | 'intensive_exam';
+  amountBirr: number;
+  paymentMethod?: string;
+  paymentRef?: string;
+  paidAt?: string;
+  status: 'pending_payment' | 'pending_approval' | 'awaiting_assignment' | 'assigned' | 'active';
+  messages: TutorMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface ExamCardInfo {
   id: string;

@@ -749,6 +749,11 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
   const [liveViewerCount, setLiveViewerCount] = useState<number>(0);
   const [viewingClassDocument, setViewingClassDocument] = useState<DocumentMaterial | null>(null);
   const [isRemoteAudioMuted, setIsRemoteAudioMuted] = useState<boolean>(false);
+  const [remoteAudioVolume, setRemoteAudioVolume] = useState<number>(1.0);
+  const remoteAudioVolumeRef = useRef<number>(1.0);
+  remoteAudioVolumeRef.current = remoteAudioVolume;
+  const isRemoteAudioMutedRef = useRef<boolean>(false);
+  isRemoteAudioMutedRef.current = isRemoteAudioMuted;
   const [activeServerBroadcast, setActiveServerBroadcast] = useState<ActiveBroadcastInfo | null>(null);
   const activeServerBroadcastRef = useRef<ActiveBroadcastInfo | null>(null);
   activeServerBroadcastRef.current = activeServerBroadcast;
@@ -860,7 +865,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
       onAudioChunk: (chunkBase64) => {
         // Fallback Audio chunk playback: guarantees student hears teacher even without P2P WebRTC
         try {
-          if (!remoteTeacherStream || isRemoteAudioMuted) {
+          if (!remoteTeacherStream && !isRemoteAudioMutedRef.current && remoteAudioVolumeRef.current > 0) {
             const binary = atob(chunkBase64);
             const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) {
@@ -872,7 +877,8 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
               fallbackAudioRef.current = new Audio();
             }
             fallbackAudioRef.current.src = url;
-            fallbackAudioRef.current.volume = 1.0;
+            fallbackAudioRef.current.volume = remoteAudioVolumeRef.current;
+            fallbackAudioRef.current.muted = isRemoteAudioMutedRef.current;
             fallbackAudioRef.current.play().catch(() => {});
           }
         } catch (e) {}
@@ -2607,7 +2613,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
         chapter: selectedClass?.currentTopic || (isAm ? 'የቀጥታ ስርጭት ትምህርት' : 'Live Classroom Lecture'),
         instructor: authorName,
         duration: finalDuration,
-        views: 1,
+        views: 0,
         videoUrl: serverStreamUrl,
         thumbnailGradient: 'from-emerald-950 via-slate-900 to-indigo-950',
         thumbnailUrl: snapshotThumb || selectedClass?.teacherAvatar || teacherPhoto || undefined,
@@ -5125,7 +5131,7 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                           remoteAudioElementRef.current = node;
                           if (node && remoteTeacherStream && node.srcObject !== remoteTeacherStream) {
                             node.srcObject = remoteTeacherStream;
-                            node.volume = 1.0;
+                            node.volume = remoteAudioVolume;
                             node.play().catch(() => {});
                           }
                         }}
@@ -5151,15 +5157,21 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                         <button
                           type="button"
                           onClick={() => {
+                            const restoreVol = remoteAudioVolume > 0 ? remoteAudioVolume : 1.0;
+                            if (remoteAudioVolume === 0) setRemoteAudioVolume(1.0);
                             if (remoteVideoElementRef.current) {
                               remoteVideoElementRef.current.muted = false;
-                              remoteVideoElementRef.current.volume = 1.0;
+                              remoteVideoElementRef.current.volume = restoreVol;
                               remoteVideoElementRef.current.play().catch(console.warn);
                             }
                             if (remoteAudioElementRef.current) {
                               remoteAudioElementRef.current.muted = false;
-                              remoteAudioElementRef.current.volume = 1.0;
+                              remoteAudioElementRef.current.volume = restoreVol;
                               remoteAudioElementRef.current.play().catch(console.warn);
+                            }
+                            if (fallbackAudioRef.current) {
+                              fallbackAudioRef.current.muted = false;
+                              fallbackAudioRef.current.volume = restoreVol;
                             }
                             setIsRemoteAudioMuted(false);
                             triggerToast(currentLang === 'am' ? 'የመምህሩ ድምፅ ተከፍቷል።' : 'Teacher voice unmuted.');
@@ -5172,44 +5184,74 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                       </div>
                     )}
 
-                    {/* Unmute/Mute Audio Button for Student */}
-                    <div className="absolute bottom-4 right-4 z-30 flex items-center gap-2">
+                    {/* Volume & Mute Controls for Student */}
+                    <div className="absolute bottom-4 right-4 z-30 flex items-center gap-2 bg-slate-900/90 border border-slate-700/80 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md">
                       <button
                         type="button"
                         onClick={() => {
+                          const nextMuted = !isRemoteAudioMuted;
+                          const restoreVol = remoteAudioVolume > 0 ? remoteAudioVolume : 1.0;
+                          if (!nextMuted && remoteAudioVolume === 0) setRemoteAudioVolume(1.0);
                           if (remoteVideoElementRef.current) {
-                            const nextMuted = !isRemoteAudioMuted;
                             remoteVideoElementRef.current.muted = nextMuted;
-                            if (!nextMuted) {
-                              remoteVideoElementRef.current.volume = 1.0;
-                            }
-                            setIsRemoteAudioMuted(nextMuted);
-                            if (!nextMuted) {
-                              remoteVideoElementRef.current.play().catch(() => {});
-                              triggerToast(currentLang === 'am' ? 'ድምፅ ተከፍቷል።' : 'Live audio unmuted.');
-                            } else {
-                              triggerToast(currentLang === 'am' ? 'ድምፅ ተዘግቷል።' : 'Audio muted.');
-                            }
+                            if (!nextMuted) remoteVideoElementRef.current.volume = restoreVol;
+                            if (!nextMuted) remoteVideoElementRef.current.play().catch(() => {});
+                          }
+                          if (remoteAudioElementRef.current) {
+                            remoteAudioElementRef.current.muted = nextMuted;
+                            if (!nextMuted) remoteAudioElementRef.current.volume = restoreVol;
+                            if (!nextMuted) remoteAudioElementRef.current.play().catch(() => {});
+                          }
+                          if (fallbackAudioRef.current) {
+                            fallbackAudioRef.current.muted = nextMuted;
+                            if (!nextMuted) fallbackAudioRef.current.volume = restoreVol;
+                          }
+                          setIsRemoteAudioMuted(nextMuted);
+                          triggerToast(
+                            !nextMuted
+                              ? (currentLang === 'am' ? 'ድምፅ ተከፍቷል።' : 'Live audio unmuted.')
+                              : (currentLang === 'am' ? 'ድምፅ ተዘግቷል።' : 'Audio muted.')
+                          );
+                        }}
+                        className={`p-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                          isRemoteAudioMuted ? 'bg-rose-600 text-white' : 'text-emerald-400 hover:bg-slate-800'
+                        }`}
+                        title={isRemoteAudioMuted ? (isAm ? 'ድምጽ ክፈት' : 'Unmute') : (isAm ? 'ድምጽ ዝጋ' : 'Mute')}
+                      >
+                        {isRemoteAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                      </button>
+
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={isRemoteAudioMuted ? 0 : remoteAudioVolume}
+                        onChange={(e) => {
+                          const nextVol = parseFloat(e.target.value);
+                          const muted = nextVol === 0;
+                          setRemoteAudioVolume(nextVol);
+                          setIsRemoteAudioMuted(muted);
+                          if (remoteVideoElementRef.current) {
+                            remoteVideoElementRef.current.volume = nextVol;
+                            remoteVideoElementRef.current.muted = muted;
+                          }
+                          if (remoteAudioElementRef.current) {
+                            remoteAudioElementRef.current.volume = nextVol;
+                            remoteAudioElementRef.current.muted = muted;
+                          }
+                          if (fallbackAudioRef.current) {
+                            fallbackAudioRef.current.volume = nextVol;
+                            fallbackAudioRef.current.muted = muted;
                           }
                         }}
-                        className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer shadow-lg backdrop-blur-md ${
-                          isRemoteAudioMuted
-                            ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
-                            : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                        }`}
-                      >
-                        {isRemoteAudioMuted ? (
-                          <>
-                            <VolumeX className="w-4 h-4" />
-                            <span>{isAm ? '🔊 ድምጽ ክፈት' : '🔊 Unmute Audio'}</span>
-                          </>
-                        ) : (
-                          <>
-                            <Volume2 className="w-4 h-4" />
-                            <span>{isAm ? 'ድምጽ እየሰራ ነው' : 'Audio Playing'}</span>
-                          </>
-                        )}
-                      </button>
+                        className="w-16 sm:w-20 h-1.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        aria-label="Live audio volume"
+                        title={`${Math.round((isRemoteAudioMuted ? 0 : remoteAudioVolume) * 100)}%`}
+                      />
+                      <span className="text-[10px] font-mono font-bold text-slate-200 min-w-[28px] text-right">
+                        {isRemoteAudioMuted ? '0%' : `${Math.round(remoteAudioVolume * 100)}%`}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -8015,11 +8057,6 @@ export const LiveClassView: React.FC<LiveClassViewProps> = ({
                   }
                 }}
                 onLoadedMetadata={(e) => {
-                  const el = e.currentTarget;
-                  el.volume = 1.0;
-                  el.muted = false;
-                }}
-                onPlay={(e) => {
                   const el = e.currentTarget;
                   el.volume = 1.0;
                   el.muted = false;

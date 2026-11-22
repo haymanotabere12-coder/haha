@@ -12,6 +12,10 @@ import { AiStudyLabView } from './components/AiStudyLabView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { AdminPanelView } from './components/AdminPanelView';
 import { AuthModal } from './components/AuthModal';
+import { SplashScreen } from './components/SplashScreen';
+import { PersonalTutorView } from './components/PersonalTutorView';
+import { PaymentCheckoutModal } from './components/PaymentCheckoutModal';
+import { signOutFirebase } from './firebase';
 
 import { 
   ActiveTab, 
@@ -27,7 +31,8 @@ import {
   LiveClass,
   VideoLesson,
   ExamCardInfo,
-  Language
+  Language,
+  VideoMembership
 } from './types';
 
 import { 
@@ -80,6 +85,10 @@ export default function App() {
       console.warn('Could not save language to storage', e);
     }
   }, [language]);
+
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+  const [videoMembership, setVideoMembership] = useState<VideoMembership | null>(null);
+  const [isVideoUpgradeModalOpen, setIsVideoUpgradeModalOpen] = useState<boolean>(false);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [authModalInitialRole, setAuthModalInitialRole] = useState<'student' | 'teacher' | 'admin'>('student');
@@ -176,7 +185,14 @@ export default function App() {
       const saved = localStorage.getItem('ethio_exam_video_lessons');
       if (saved) {
         const parsed: VideoLesson[] = JSON.parse(saved);
-        const cleaned = parsed.filter((v) => !(v.isLiveRecording && v.videoUrl?.includes('BigBuckBunny')));
+        const LEGACY_FAKE_VIEWS = new Set([128400, 94200, 112000, 88700, 38400, 29100, 45200]);
+        const cleaned = parsed
+          .filter((v) => !(v.isLiveRecording && v.videoUrl?.includes('BigBuckBunny')))
+          .map((v) =>
+            LEGACY_FAKE_VIEWS.has(v.views)
+              ? { ...v, views: 0 }
+              : v
+          );
         return cleaned.length > 0 ? cleaned : VIDEO_LESSONS_DATA;
       }
       return VIDEO_LESSONS_DATA;
@@ -193,21 +209,190 @@ export default function App() {
     }
   }, [videoLessons]);
 
-  // Sync server recordings only for authenticated users
+  // Sync server recordings and real video view counts for authenticated users
   useEffect(() => {
     if (!currentUser) return;
-    fetchServerRecordings().then((serverRecs) => {
-      if (serverRecs && serverRecs.length > 0) {
-        setVideoLessons((prev) => {
-          const existingIds = new Set(prev.map((p) => p.id));
-          const newItems = serverRecs.filter(
-            (r) => !existingIds.has(r.id) && !existingIds.has(`vid-${r.id}`) && !existingIds.has(r.id.replace(/^vid-/, ''))
-          );
-          return newItems.length > 0 ? [...newItems, ...prev] : prev;
+    Promise.all([
+      fetchServerRecordings(),
+      fetch('/api/videos/views').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([serverRecs, viewsData]) => {
+      const viewsMap: Record<string, number> = viewsData?.views || {};
+      setVideoLessons((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const newItems = (serverRecs || []).filter(
+          (r) => !existingIds.has(r.id) && !existingIds.has(`vid-${r.id}`) && !existingIds.has(r.id.replace(/^vid-/, ''))
+        );
+        const combined = newItems.length > 0 ? [...newItems, ...prev] : prev;
+        return combined.map((v) => {
+          const serverViews = viewsMap[v.id] ?? viewsMap[v.id.replace(/^vid-/, '')];
+          return typeof serverViews === 'number' ? { ...v, views: serverViews } : v;
         });
-      }
+      });
     });
   }, [currentUser]);
+
+  const handleRecordVideoView = async (videoId: string) => {
+    if (!videoId || !currentUser) return;
+    const viewerKey = `${currentUser.id}:${videoId}`;
+    try {
+      const raw = localStorage.getItem('ethio_exam_viewed_videos');
+      const viewedMap: Record<string, boolean> = raw ? JSON.parse(raw) : {};
+      const alreadyViewedLocally = Boolean(viewedMap[viewerKey]);
+
+      const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/view`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewerId: currentUser.id }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data?.views === 'number') {
+          viewedMap[viewerKey] = true;
+          localStorage.setItem('ethio_exam_viewed_videos', JSON.stringify(viewedMap));
+          setVideoLessons((prev) =>
+            prev.map((v) => (v.id === videoId ? { ...v, views: data.views } : v))
+          );
+          return;
+        }
+      }
+
+      if (!alreadyViewedLocally) {
+        viewedMap[viewerKey] = true;
+        localStorage.setItem('ethio_exam_viewed_videos', JSON.stringify(viewedMap));
+        setVideoLessons((prev) =>
+          prev.map((v) => (v.id === videoId ? { ...v, views: (v.views || 0) + 1 } : v))
+        );
+      }
+    } catch {
+      // ignore view tracking errors
+    }
+  };
+
+  // Sync student video membership (2 free videos limit) from server
+  useEffect(() => {
+    if (!currentUser) {
+      setVideoMembership(null);
+      return;
+    }
+    const storageKey = `ethio_exam_video_membership_${currentUser.id}`;
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        setVideoMembership(JSON.parse(cached));
+      }
+    } catch {}
+
+    fetch(`/api/membership/${encodeURIComponent(currentUser.id)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.membership) {
+          setVideoMembership(data.membership);
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(data.membership));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, [currentUser]);
+
+  const handleRefreshVideoMembership = async () => {
+    if (!currentUser) return;
+    try {
+      const res = await fetch(`/api/membership/${encodeURIComponent(currentUser.id)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.membership) {
+        setVideoMembership(data.membership);
+        try {
+          localStorage.setItem(
+            `ethio_exam_video_membership_${currentUser.id}`,
+            JSON.stringify(data.membership)
+          );
+        } catch {}
+      }
+    } catch {}
+  };
+
+  const handleRequestVideoAccess = async (videoId: string): Promise<boolean> => {
+    if (!currentUser) return false;
+    if (currentUser.role !== 'student') return true;
+
+    const storageKey = `ethio_exam_video_membership_${currentUser.id}`;
+    try {
+      const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/access`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, role: currentUser.role }),
+      });
+      const data = await res.json();
+      if (data?.membership) {
+        setVideoMembership(data.membership);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(data.membership));
+        } catch {}
+      }
+      if (res.status === 402 || !data?.allowed) {
+        if (data?.membership?.videoPlan !== 'pending_approval') {
+          setIsVideoUpgradeModalOpen(true);
+        }
+        return false;
+      }
+      return true;
+    } catch {
+      const current: VideoMembership = videoMembership || {
+        userId: currentUser.id,
+        videoPlan: 'free',
+        freeVideosUnlockedIds: [],
+      };
+      if (current.videoPlan === 'premium' || current.freeVideosUnlockedIds.includes(videoId)) {
+        return true;
+      }
+      if (current.freeVideosUnlockedIds.length < 2) {
+        const updated: VideoMembership = {
+          ...current,
+          freeVideosUnlockedIds: [...current.freeVideosUnlockedIds, videoId],
+        };
+        setVideoMembership(updated);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(updated));
+        } catch {}
+        return true;
+      }
+      if (current.videoPlan !== 'pending_approval') {
+        setIsVideoUpgradeModalOpen(true);
+      }
+      return false;
+    }
+  };
+
+  const handleConfirmVideoUpgrade = async (details: { paymentMethod: string; paymentRef: string }) => {
+    if (!currentUser) return;
+    const res = await fetch('/api/membership/upgrade-videos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: currentUser.id,
+        userName: currentUser.name,
+        paymentMethod: details.paymentMethod,
+        paymentRef: details.paymentRef,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || 'Could not verify payment.');
+    }
+    if (data?.membership) {
+      setVideoMembership(data.membership);
+      try {
+        localStorage.setItem(
+          `ethio_exam_video_membership_${currentUser.id}`,
+          JSON.stringify(data.membership)
+        );
+      } catch {}
+    }
+    setIsVideoUpgradeModalOpen(false);
+  };
 
   // Persistent Document Library State
   const [documents, setDocuments] = useState<DocumentMaterial[]>(() => {
@@ -457,6 +642,7 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('ethio_exam_current_user');
+    signOutFirebase();
     setCurrentUser(null);
     setPendingTabDestination(null);
     setPendingExamParams(null);
@@ -595,6 +781,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased selection:bg-emerald-500 selection:text-white font-sans">
+      {showSplash && (
+        <SplashScreen
+          onFinish={() => setShowSplash(false)}
+          language={language}
+        />
+      )}
       {/* Universal Top Header */}
       <Header
         selectedLevel={selectedLevel}
@@ -826,10 +1018,16 @@ export default function App() {
               selectedLevel={selectedLevel}
               subjects={SUBJECTS_DATA}
               currentUser={currentUser}
+              membership={videoMembership}
+              onRequestVideoAccess={handleRequestVideoAccess}
+              onOpenVideoUpgradeModal={() => setIsVideoUpgradeModalOpen(true)}
+              onRefreshMembership={handleRefreshVideoMembership}
+              onOpenPersonalTutor={() => setActiveTab('tutors')}
               language={language}
               initialFilterTab={videoFilterTab}
               initialSelectedVideoId={selectedVideoLessonId}
               onAddVideoLesson={(newVid) => setVideoLessons((prev) => [newVid, ...prev])}
+              onRecordVideoView={handleRecordVideoView}
               onDeleteVideoLesson={(id) => {
                 deleteServerRecording(id);
                 deleteServerRecording(id.replace(/^vid-/, ''));
@@ -854,6 +1052,19 @@ export default function App() {
                 });
                 setActiveTab('ai_lab');
               }}
+            />
+          </div>
+        )}
+
+        {/* 8B. PERSONAL TUTOR ASSIGNMENT & 1-ON-1 ROOM */}
+        {currentUser && activeTab === 'tutors' && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <PersonalTutorView
+              currentUser={currentUser}
+              selectedLevel={selectedLevel}
+              subjects={SUBJECTS_DATA}
+              language={language}
+              onGoToLiveClasses={() => setActiveTab('live_classes')}
             />
           </div>
         )}
@@ -937,6 +1148,22 @@ export default function App() {
         initialRole={authModalInitialRole}
         initialMode={authModalInitialMode}
         targetActionMessage={authTargetMessage}
+        language={language}
+      />
+
+      {/* Video Library Unlimited Unlock Checkout Modal */}
+      <PaymentCheckoutModal
+        isOpen={isVideoUpgradeModalOpen}
+        onClose={() => setIsVideoUpgradeModalOpen(false)}
+        purpose="video_upgrade"
+        amountBirr={199}
+        title={language === 'am' ? 'ሁሉንም የቪዲዮ ትምህርቶች ይክፈቱ' : 'Unlock All Video Lessons'}
+        description={
+          language === 'am'
+            ? 'ከ2 ነፃ ቪዲዮዎች በላይ ለማየት ክፍያ (199 ብር) ይላኩ፤ አድሚኑ Approve ሲያደርግ ሁሉም ቪዲዮዎች ይከፈታሉ።'
+            : 'You have used your 2 free video lessons. Submit payment (199 ETB) for Admin approval to unlock unlimited video access.'
+        }
+        onConfirmPayment={handleConfirmVideoUpgrade}
         language={language}
       />
 

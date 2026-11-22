@@ -28,7 +28,7 @@ import {
   ExternalLink,
   RefreshCw
 } from 'lucide-react';
-import { VideoLesson, ExamLevel, SubjectInfo, AppUser, Language } from '../types';
+import { VideoLesson, ExamLevel, SubjectInfo, AppUser, Language, VideoMembership } from '../types';
 import { getRecordedVideoUrl, saveRecordedVideoBlob, deleteRecordedVideoBlob } from '../utils/recordedVideoStorage';
 import { uploadRecordedVideoToServer } from '../utils/liveStreamService';
 
@@ -37,8 +37,14 @@ interface VideoLearningViewProps {
   selectedLevel: ExamLevel;
   subjects: SubjectInfo[];
   currentUser?: AppUser | null;
+  membership?: VideoMembership | null;
+  onRequestVideoAccess?: (videoId: string) => Promise<boolean>;
+  onOpenVideoUpgradeModal?: () => void;
+  onRefreshMembership?: () => Promise<void> | void;
+  onOpenPersonalTutor?: () => void;
   onAddVideoLesson?: (video: VideoLesson) => void;
   onDeleteVideoLesson?: (videoId: string) => void;
+  onRecordVideoView?: (videoId: string) => void;
   onGenerateQuizFromVideo: (video: VideoLesson) => void;
   initialFilterTab?: 'All' | 'My Videos' | 'Saved';
   initialSelectedVideoId?: string;
@@ -80,8 +86,14 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   selectedLevel,
   subjects,
   currentUser,
+  membership,
+  onRequestVideoAccess,
+  onOpenVideoUpgradeModal,
+  onRefreshMembership,
+  onOpenPersonalTutor,
   onAddVideoLesson,
   onDeleteVideoLesson,
+  onRecordVideoView,
   onGenerateQuizFromVideo,
   initialFilterTab,
   initialSelectedVideoId,
@@ -90,12 +102,26 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   const isAm = language === 'am';
 
   const isAdmin = currentUser?.role === 'admin';
+  const isStudent = currentUser?.role === 'student';
   const canUploadVideo = currentUser?.role === 'admin' || currentUser?.role === 'teacher';
+  const isPendingVideoApproval = isStudent && membership?.videoPlan === 'pending_approval';
+  const isPremiumVideos = !isStudent || membership?.videoPlan === 'premium';
+  const unlockedVideoIds = membership?.freeVideosUnlockedIds || [];
+  const freeVideosRemaining = isPremiumVideos ? 999 : Math.max(0, 2 - unlockedVideoIds.length);
   const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'My Videos' | 'Saved'>(initialFilterTab || 'All');
   const [selectedVideo, setSelectedVideo] = useState<VideoLesson>(videoLessons[0] || null);
-  
-  // Real Playback Engine State
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+
+  const isVideoUnlocked = (videoId?: string): boolean => {
+    if (!videoId) return false;
+    if (isPremiumVideos) return true;
+    return unlockedVideoIds.includes(videoId);
+  };
+  const isSelectedVideoUnlocked = isVideoUnlocked(selectedVideo?.id);
+
+  // Real Playback Engine State (students start paused so they choose which 2 free videos to unlock)
+  const [isPlaying, setIsPlaying] = useState<boolean>(() =>
+    !isStudent || isVideoUnlocked(videoLessons[0]?.id)
+  );
   const [playerMode, setPlayerMode] = useState<'youtube' | 'html5'>(() => {
     return videoLessons[0]?.youtubeId ? 'youtube' : 'html5';
   });
@@ -139,7 +165,28 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [videoPendingDelete, setVideoPendingDelete] = useState<VideoLesson | null>(null);
+  const [autoplayMutedWarning, setAutoplayMutedWarning] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const youtubeIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const lastNonZeroVolumeRef = useRef<number>(1.0);
+  const recordedViewsSessionRef = useRef<Set<string>>(new Set());
+
+  const triggerRecordView = (videoId?: string) => {
+    if (!videoId || !onRecordVideoView) return;
+    if (recordedViewsSessionRef.current.has(videoId)) return;
+    recordedViewsSessionRef.current.add(videoId);
+    onRecordVideoView(videoId);
+  };
+
+  const sendYouTubeCommand = (func: string, args: unknown[] = []) => {
+    const win = youtubeIframeRef.current?.contentWindow;
+    if (!win) return;
+    try {
+      win.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+    } catch {
+      // ignore cross-origin postMessage errors
+    }
+  };
 
   useEffect(() => {
     setNewLevel(selectedLevel);
@@ -180,10 +227,17 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
     }
   }, [initialSelectedVideoId, videoLessons]);
 
-  // Sync selected video if initial list changes
+  // Sync selected video if initial list or its real view count changes
   useEffect(() => {
     if (!selectedVideo && videoLessons.length > 0) {
       setSelectedVideo(videoLessons[0]);
+      return;
+    }
+    if (selectedVideo) {
+      const updated = videoLessons.find((v) => v.id === selectedVideo.id);
+      if (updated && updated.views !== selectedVideo.views) {
+        setSelectedVideo(updated);
+      }
     }
   }, [videoLessons, selectedVideo]);
 
@@ -246,12 +300,16 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
 
         if (!isCancelled && url) {
           setActiveVideoUrl(url);
-          setIsMuted(false);
+          setAutoplayMutedWarning(false);
           if (videoRef.current) {
-            videoRef.current.muted = false;
-            videoRef.current.volume = 1.0;
+            videoRef.current.muted = isMuted;
+            videoRef.current.volume = volumeLevel;
             videoRef.current.load();
-            videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+            if (isVideoUnlocked(selectedVideo.id)) {
+              videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+            } else {
+              setIsPlaying(false);
+            }
           }
         }
       };
@@ -329,38 +387,73 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   }, [selectedVideo]);
 
   const handleVolumeChange = (newVol: number) => {
-    setVolumeLevel(newVol);
+    const clamped = Math.max(0, Math.min(1, Math.round(newVol * 100) / 100));
+    if (clamped > 0) {
+      lastNonZeroVolumeRef.current = clamped;
+    }
+    setVolumeLevel(clamped);
+    const shouldMute = clamped === 0;
+    setIsMuted(shouldMute);
+    setAutoplayMutedWarning(false);
+
     if (videoRef.current) {
-      videoRef.current.volume = newVol;
-      if (newVol > 0 && isMuted) {
-        videoRef.current.muted = false;
-        setIsMuted(false);
-      } else if (newVol === 0) {
-        videoRef.current.muted = true;
-        setIsMuted(true);
-      }
+      videoRef.current.volume = clamped;
+      videoRef.current.muted = shouldMute;
+    }
+    if (playerMode === 'youtube') {
+      sendYouTubeCommand('setVolume', [Math.round(clamped * 100)]);
+      sendYouTubeCommand(shouldMute ? 'mute' : 'unMute');
     }
   };
 
-  const handleTogglePlay = () => {
+  const handleStepVolume = (delta: number) => {
+    const base = isMuted ? 0 : volumeLevel;
+    handleVolumeChange(base + delta);
+  };
+
+  const ensureVideoAccessOrPrompt = async (videoId?: string): Promise<boolean> => {
+    if (!videoId) return false;
+    if (isVideoUnlocked(videoId)) return true;
+    if (!onRequestVideoAccess) return true;
+    const allowed = await onRequestVideoAccess(videoId);
+    if (!allowed) {
+      setIsPlaying(false);
+      if (!isPendingVideoApproval) {
+        onOpenVideoUpgradeModal?.();
+      }
+      return false;
+    }
+    return true;
+  };
+
+  const handleTogglePlay = async () => {
+    if (!isSelectedVideoUnlocked) {
+      const ok = await ensureVideoAccessOrPrompt(selectedVideo?.id);
+      if (!ok) return;
+    }
     if (playerMode === 'youtube') {
-      setIsPlaying((prev) => !prev);
+      const nextPlaying = !isPlaying;
+      setIsPlaying(nextPlaying);
+      sendYouTubeCommand(nextPlaying ? 'playVideo' : 'pauseVideo');
+      if (nextPlaying) {
+        triggerRecordView(selectedVideo?.id);
+      }
       return;
     }
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      // User explicitly clicked play - unmute and set 100% volume so voice is clearly heard!
-      video.muted = false;
-      video.volume = 1.0;
-      setIsMuted(false);
-      setVolumeLevel(1.0);
+      const targetVol = isMuted ? 0 : (volumeLevel > 0 ? volumeLevel : lastNonZeroVolumeRef.current);
+      video.muted = isMuted;
+      video.volume = targetVol > 0 ? targetVol : 1.0;
       video.play().then(() => {
         setIsPlaying(true);
+        setAutoplayMutedWarning(false);
       }).catch((err) => {
         console.warn('Autoplay restricted without gesture/audio:', err);
         video.muted = true;
         setIsMuted(true);
+        setAutoplayMutedWarning(true);
         video.play().then(() => {
           setIsPlaying(true);
           triggerToast(isAm ? 'ድምፅ ለመስማት የድምፅ ምልክቱን ይጫኑ' : 'Click unmute to enable audio');
@@ -373,17 +466,35 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   };
 
   const handleToggleMute = () => {
+    const nextMuted = !isMuted;
+    const restoreVol =
+      volumeLevel > 0
+        ? volumeLevel
+        : lastNonZeroVolumeRef.current > 0
+          ? lastNonZeroVolumeRef.current
+          : 1.0;
+
+    setIsMuted(nextMuted);
+    setAutoplayMutedWarning(false);
+    if (!nextMuted && volumeLevel === 0) {
+      setVolumeLevel(restoreVol);
+    }
+
     if (videoRef.current) {
-      const nextMuted = !isMuted;
       videoRef.current.muted = nextMuted;
       if (!nextMuted) {
-        videoRef.current.volume = volumeLevel > 0 ? volumeLevel : 1.0;
+        videoRef.current.volume = restoreVol;
       }
-      setIsMuted(nextMuted);
-      triggerToast(nextMuted ? (isAm ? 'ድምፅ ተዘግቷል' : 'Audio Muted') : (isAm ? 'ድምፅ ተከፍቷል' : 'Audio Unmuted'));
-    } else {
-      setIsMuted(!isMuted);
     }
+    if (playerMode === 'youtube') {
+      if (nextMuted) {
+        sendYouTubeCommand('mute');
+      } else {
+        sendYouTubeCommand('unMute');
+        sendYouTubeCommand('setVolume', [Math.round(restoreVol * 100)]);
+      }
+    }
+    triggerToast(nextMuted ? (isAm ? 'ድምፅ ተዘግቷል' : 'Audio Muted') : (isAm ? 'ድምፅ ተከፍቷል' : 'Audio Unmuted'));
   };
 
   const handleVideoError = async () => {
@@ -424,6 +535,10 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
     if (playerMode === 'html5' && videoRef.current) {
       videoRef.current.currentTime = seconds;
       videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+    } else if (playerMode === 'youtube') {
+      sendYouTubeCommand('seekTo', [seconds, true]);
+      sendYouTubeCommand('playVideo');
+      setIsPlaying(true);
     }
     triggerToast(`ወደ ተመረጠው ርዕስ ተሸጋግሯል: ${label} (${timeStr})`);
   };
@@ -431,9 +546,17 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
   const handleSelectVideo = async (video: VideoLesson) => {
     setSelectedVideo(video);
     setPlaybackError(false);
-    setIsPlaying(true);
+    setAutoplayMutedWarning(false);
     setCurrentTimeFormatted('00:00');
-    
+
+    const canWatch = await ensureVideoAccessOrPrompt(video.id);
+    if (!canWatch) {
+      setIsPlaying(false);
+      return;
+    }
+
+    setIsPlaying(true);
+
     // If it's a live recording, custom uploaded file, or missing youtubeId, default to HTML5 direct player
     if (video.isLiveRecording || !video.youtubeId) {
       setPlayerMode('html5');
@@ -461,12 +584,12 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
       setPlayerMode('youtube');
     }
 
-    // Trigger video playback attempt
+    // Trigger video playback attempt preserving user's chosen volume
     setTimeout(() => {
       if (videoRef.current) {
         videoRef.current.currentTime = 0;
-        videoRef.current.muted = false;
-        videoRef.current.volume = 1.0;
+        videoRef.current.muted = isMuted;
+        videoRef.current.volume = volumeLevel > 0 ? volumeLevel : lastNonZeroVolumeRef.current;
         videoRef.current.play().then(() => {
           setIsPlaying(true);
         }).catch(() => {
@@ -580,7 +703,7 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
       chapter: newChapter.trim() || 'General Topic Review',
       instructor: newInstructor.trim() || currentUser?.name || 'Instructor',
       duration: newDuration || '15:00',
-      views: 1,
+      views: 0,
       youtubeId: finalYoutubeId,
       videoUrl: finalVideoUrl,
       thumbnailGradient: uploadSourceType === 'youtube' 
@@ -790,6 +913,79 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
         </div>
       </div>
 
+      {/* Student Free Video Allowance & Personal Tutor Bar */}
+      {isStudent && (
+        <div className="rounded-2xl bg-white border border-slate-200 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+                {isPremiumVideos ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="font-semibold text-slate-800">
+                  {isAm
+                    ? 'ሙሉ የቪዲዮ አባልነት ተከፍቷል — ሁሉንም ቪዲዮዎች ያለ ገደብ መመልከት ይችላሉ'
+                    : 'Unlimited Video Membership Active · Watch all lessons without limits'}
+                </span>
+              </>
+            ) : isPendingVideoApproval ? (
+              <>
+                <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="text-amber-900 font-semibold">
+                  {isAm
+                    ? `ክፍያዎ ተልኳል (${membership?.videoPaymentRef || ''}) — የአድሚን ማረጋገጫ (Approval) በመጠባበቅ ላይ ነው`
+                    : `Payment Submitted (${membership?.videoPaymentRef || ''}) · Waiting for Admin Approval to unlock all videos`}
+                </span>
+              </>
+            ) : (
+              <>
+                <Lock className={`w-4 h-4 shrink-0 ${freeVideosRemaining > 0 ? 'text-sky-600' : 'text-amber-600'}`} />
+                <span className="text-slate-700 font-medium">
+                  {freeVideosRemaining > 0 ? (
+                    isAm
+                      ? `ነጻ ሙከራ፦ ${freeVideosRemaining} ከ2 ነጻ ቪዲዮዎች ቀርተውታል (ከ2 በኋላ ክፍያ እና የአድሚን ማረጋገጫ ያስፈልጋል)`
+                      : `Free Student Plan · ${freeVideosRemaining} of 2 free videos remaining`
+                  ) : (
+                    isAm
+                      ? '2ቱ ነጻ ቪዲዮዎች ተጠናቀዋል — ቀሪ ቪዲዮዎችን ለማየት ይክፈሉ እና የአድሚን ማረጋገጫ ይጠብቁ'
+                      : '2 free videos used · Pay & get Admin approval to unlock all remaining videos'
+                  )}
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {isPendingVideoApproval && onRefreshMembership && (
+              <button
+                type="button"
+                onClick={() => onRefreshMembership()}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold cursor-pointer transition flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>{isAm ? 'ማረጋገጫ አድስ' : 'Check Approval'}</span>
+              </button>
+            )}
+            {!isPremiumVideos && !isPendingVideoApproval && onOpenVideoUpgradeModal && (
+              <button
+                type="button"
+                onClick={onOpenVideoUpgradeModal}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold cursor-pointer transition"
+              >
+                {isAm ? 'ሁሉንም ክፈት (199 ብር)' : 'Unlock All Videos (199 ETB)'}
+              </button>
+            )}
+            {onOpenPersonalTutor && (
+              <button
+                type="button"
+                onClick={onOpenPersonalTutor}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800 font-semibold cursor-pointer transition"
+              >
+                {isAm ? 'የግል አስጠኚ ይፈልጋሉ?' : 'Need a Personal Tutor?'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Video Theatre / Player & Playlist */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Main Video Player (8 cols) */}
@@ -798,14 +994,88 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
             <div className="rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden shadow-xl">
               {/* Playable Viewport */}
               <div className="relative aspect-video w-full bg-black overflow-hidden flex items-center justify-center group">
-                {playerMode === 'youtube' && selectedVideo.youtubeId ? (
+                {!isSelectedVideoUnlocked ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-slate-950 text-white space-y-4">
+                    <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-400/30 text-amber-400 flex items-center justify-center">
+                      {isPendingVideoApproval ? <Clock className="w-7 h-7" /> : <Lock className="w-7 h-7" />}
+                    </div>
+                    <div className="space-y-1.5 max-w-md">
+                      <h3 className="text-lg font-bold text-white">
+                        {freeVideosRemaining > 0
+                          ? isAm
+                            ? 'ይህን ቪዲዮ ለመክፈት Play ይጫኑ'
+                            : 'Click below to unlock this lesson'
+                          : isPendingVideoApproval
+                            ? isAm
+                              ? 'የአድሚን ማረጋገጫ (Approval) በመጠባበቅ ላይ'
+                              : 'Waiting for Admin Approval'
+                            : isAm
+                              ? 'የነጻ ቪዲዮ ገደብ (2 ቪዲዮ) ተጠናቋል'
+                              : '2 Free Video Limit Reached'}
+                      </h3>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        {freeVideosRemaining > 0
+                          ? isAm
+                            ? `ከ2ቱ ነጻ ቪዲዮዎች ውስጥ ${freeVideosRemaining} ቀርቶታል። ለመክፈት ከታች ይጫኑ።`
+                            : `You have ${freeVideosRemaining} of 2 free video lessons remaining. Unlock this video now.`
+                          : isPendingVideoApproval
+                            ? isAm
+                              ? `የክፍያ መለያ (${membership?.videoPaymentRef || ''}) ተልኳል። አድሚኑ ክፍያውን አይቶ Approve እስኪያደርገው ድረስ ተጨማሪ ቪዲዮዎች ተቆልፈዋል።`
+                              : `Your payment (${membership?.videoPaymentRef || ''}) is under review. Videos remain locked until the Admin approves your request.`
+                            : isAm
+                              ? 'ሁሉንም የትምህርት ቪዲዮዎች ያለ ገደብ ለመመልከት 199 ብር ክፍያ ይፈጽሙ እና የአድሚን ማረጋገጫ ይጠብቁ።'
+                              : 'You have watched your 2 free videos. Pay 199 ETB and wait for Admin approval to unlock unlimited video access.'}
+                      </p>
+                    </div>
+                    {freeVideosRemaining > 0 ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await ensureVideoAccessOrPrompt(selectedVideo.id);
+                          if (ok) setIsPlaying(true);
+                        }}
+                        className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer transition"
+                      >
+                        <Play className="w-4 h-4 fill-current" />
+                        <span>{isAm ? 'በነጻ ክፈት እና አጫውት' : 'Unlock Free Video & Play'}</span>
+                      </button>
+                    ) : isPendingVideoApproval ? (
+                      <button
+                        type="button"
+                        onClick={() => onRefreshMembership?.()}
+                        className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-2 cursor-pointer transition"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>{isAm ? 'አድሚን ማጽደቁን አረጋግጥ' : 'Refresh Approval Status'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onOpenVideoUpgradeModal?.()}
+                        className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-2 cursor-pointer transition"
+                      >
+                        <Lock className="w-4 h-4" />
+                        <span>{isAm ? 'ክፍያ ፈጽም (199 ብር)' : 'Pay 199 ETB & Request Approval'}</span>
+                      </button>
+                    )}
+                  </div>
+                ) : playerMode === 'youtube' && selectedVideo.youtubeId ? (
                   <div className="w-full h-full relative">
                     <iframe
+                      ref={youtubeIframeRef}
                       key={selectedVideo.id}
-                      src={`https://www.youtube-nocookie.com/embed/${selectedVideo.youtubeId}?autoplay=${isPlaying ? '1' : '0'}&rel=0&modestbranding=1`}
+                      src={`https://www.youtube-nocookie.com/embed/${selectedVideo.youtubeId}?autoplay=${isPlaying ? '1' : '0'}&enablejsapi=1&rel=0&modestbranding=1`}
                       title={selectedVideo.title}
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                       allowFullScreen
+                      onLoad={() => {
+                        const targetVol = isMuted ? 0 : Math.round(volumeLevel * 100);
+                        sendYouTubeCommand('setVolume', [targetVol]);
+                        sendYouTubeCommand(isMuted ? 'mute' : 'unMute');
+                        if (isPlaying) {
+                          triggerRecordView(selectedVideo.id);
+                        }
+                      }}
                       className="w-full h-full border-0"
                     />
                     {/* YouTube help banner */}
@@ -821,10 +1091,9 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                           setPlayerMode('html5');
                           setTimeout(() => {
                             if (videoRef.current) {
-                              videoRef.current.muted = false;
-                              videoRef.current.volume = 1.0;
-                              setIsMuted(false);
-                              setVolumeLevel(1.0);
+                              const targetVol = volumeLevel > 0 ? volumeLevel : lastNonZeroVolumeRef.current;
+                              videoRef.current.muted = isMuted;
+                              videoRef.current.volume = targetVol > 0 ? targetVol : 1.0;
                               videoRef.current.play().catch(console.warn);
                             }
                           }, 150);
@@ -846,14 +1115,21 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       preload="auto"
                       onLoadedMetadata={(e) => {
                         const el = e.currentTarget;
-                        el.volume = 1.0;
-                        el.muted = false;
+                        el.volume = volumeLevel > 0 ? volumeLevel : lastNonZeroVolumeRef.current;
+                        el.muted = isMuted;
                       }}
                       onVolumeChange={(e) => {
-                        setIsMuted(e.currentTarget.muted || e.currentTarget.volume === 0);
-                        setVolumeLevel(e.currentTarget.volume);
+                        const el = e.currentTarget;
+                        if (el.volume > 0) {
+                          lastNonZeroVolumeRef.current = el.volume;
+                        }
+                        setIsMuted(el.muted || el.volume === 0);
+                        setVolumeLevel(el.volume);
                       }}
-                      onPlay={() => setIsPlaying(true)}
+                      onPlay={() => {
+                        setIsPlaying(true);
+                        triggerRecordView(selectedVideo.id);
+                      }}
                       onPause={() => setIsPlaying(false)}
                       onEnded={() => setIsPlaying(false)}
                       onError={handleVideoError}
@@ -873,19 +1149,21 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       </button>
                     )}
 
-                    {/* Prominent Center Unmute Callout if audio was restricted by browser autoplay */}
-                    {isMuted && (
+                    {/* Prominent Center Unmute Callout ONLY when browser autoplay forced mute */}
+                    {autoplayMutedWarning && isMuted && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-30 pointer-events-none p-4">
                         <button
                           type="button"
                           onClick={() => {
+                            const restoreVol = lastNonZeroVolumeRef.current > 0 ? lastNonZeroVolumeRef.current : 1.0;
                             if (videoRef.current) {
                               videoRef.current.muted = false;
-                              videoRef.current.volume = 1.0;
+                              videoRef.current.volume = restoreVol;
                               setIsMuted(false);
-                              setVolumeLevel(1.0);
+                              setVolumeLevel(restoreVol);
+                              setAutoplayMutedWarning(false);
                               videoRef.current.play().catch(() => {});
-                              triggerToast(isAm ? '🔊 ድምፅ ተከፍቷል' : '🔊 Sound Unmuted (100%)');
+                              triggerToast(isAm ? '🔊 ድምፅ ተከፍቷል' : '🔊 Sound Unmuted');
                             }
                           }}
                           className="pointer-events-auto px-5 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs sm:text-sm flex items-center gap-2.5 shadow-2xl border-2 border-white/60 animate-bounce cursor-pointer transition transform hover:scale-105"
@@ -895,19 +1173,6 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                           <span>{isAm ? '🔊 ድምፅ ክፈት' : '🔊 Unmute Audio'}</span>
                         </button>
                       </div>
-                    )}
-
-                    {/* Unmute floating banner if playing while muted */}
-                    {isPlaying && isMuted && (
-                      <button
-                        type="button"
-                        onClick={handleToggleMute}
-                        className="absolute top-3 right-3 z-30 px-3 py-1.5 rounded-full bg-rose-600/90 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xl border border-white/40 animate-pulse cursor-pointer backdrop-blur-xs transition"
-                        title={isAm ? 'ድምፅ ክፈት' : 'Click to unmute sound'}
-                      >
-                        <VolumeX className="w-4 h-4" />
-                        <span>{isAm ? 'ድምፅ ክፈት' : 'Unmute Audio'}</span>
-                      </button>
                     )}
 
                     {/* Playback Error recovery badge */}
@@ -963,15 +1228,28 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                     )}
                   </button>
 
-                  {/* Mute toggle & Volume Slider */}
-                  <div className="flex items-center gap-2 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700 shadow-sm">
+                  {/* Mute toggle, - / + Volume Buttons & Volume Slider (works for both HTML5 & YouTube) */}
+                  <div className="flex items-center gap-1.5 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700 shadow-sm">
                     <button
                       type="button"
                       onClick={handleToggleMute}
-                      className="p-1 rounded-lg text-slate-300 hover:text-white transition cursor-pointer"
+                      className="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition cursor-pointer"
                       title={isMuted ? (isAm ? 'ድምፅ ክፈት' : 'Unmute') : (isAm ? 'ድምፅ ዝጋ' : 'Mute')}
                     >
-                      {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+                      {isMuted || volumeLevel === 0 ? (
+                        <VolumeX className="w-4 h-4 text-rose-400" />
+                      ) : (
+                        <Volume2 className="w-4 h-4 text-emerald-400" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStepVolume(-0.1)}
+                      className="w-6 h-6 rounded-md bg-slate-700/80 hover:bg-slate-600 text-slate-100 font-black text-xs flex items-center justify-center transition cursor-pointer"
+                      title={isAm ? 'ድምፅ ቀንስ (-10%)' : 'Decrease Volume (-10%)'}
+                      aria-label="Decrease volume"
+                    >
+                      −
                     </button>
                     <input
                       type="range"
@@ -980,10 +1258,20 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       step="0.05"
                       value={isMuted ? 0 : volumeLevel}
                       onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                      className="w-16 sm:w-20 h-1.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      className="w-16 sm:w-24 h-1.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                       title={isAm ? `የድምፅ መጠን፦ ${Math.round((isMuted ? 0 : volumeLevel) * 100)}%` : `Volume: ${Math.round((isMuted ? 0 : volumeLevel) * 100)}%`}
+                      aria-label="Volume"
                     />
-                    <span className="text-[10px] font-mono font-bold text-slate-300 min-w-[30px]">
+                    <button
+                      type="button"
+                      onClick={() => handleStepVolume(0.1)}
+                      className="w-6 h-6 rounded-md bg-slate-700/80 hover:bg-slate-600 text-slate-100 font-black text-xs flex items-center justify-center transition cursor-pointer"
+                      title={isAm ? 'ድምፅ ጨምር (+10%)' : 'Increase Volume (+10%)'}
+                      aria-label="Increase volume"
+                    >
+                      +
+                    </button>
+                    <span className="text-[10px] font-mono font-bold text-slate-300 min-w-[32px] text-right">
                       {isMuted ? '0%' : `${Math.round(volumeLevel * 100)}%`}
                     </span>
                   </div>
@@ -1061,7 +1349,17 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       {selectedVideo.title}
                     </h3>
                     <p className="text-xs text-slate-500 mt-1">
-                      Instructor: <strong className="text-slate-800">{selectedVideo.instructor}</strong> • {selectedVideo.chapter} • {selectedVideo.views.toLocaleString()} views
+                      {isAm ? 'መምህር፦' : 'Instructor:'}{' '}
+                      <strong className="text-slate-800">{selectedVideo.instructor}</strong> • {selectedVideo.chapter} •{' '}
+                      <span className="font-semibold text-slate-700">
+                        {isAm
+                          ? (selectedVideo.views || 0) === 1
+                            ? '1 ሰው ተመልክቶታል'
+                            : `${(selectedVideo.views || 0).toLocaleString()} ሰዎች ተመልክተውታል`
+                          : (selectedVideo.views || 0) === 1
+                            ? '1 view'
+                            : `${(selectedVideo.views || 0).toLocaleString()} views`}
+                      </span>
                     </p>
                   </div>
 
@@ -1222,6 +1520,12 @@ export const VideoLearningView: React.FC<VideoLearningViewProps> = ({
                       <p className="text-[10px] text-slate-400 truncate">
                         {video.instructor}
                       </p>
+                      {!isVideoUnlocked(video.id) && freeVideosRemaining === 0 && (
+                        <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-0.5 shrink-0">
+                          <Lock className="w-2.5 h-2.5" />
+                          <span>{isAm ? 'ክፍያ' : 'Pro'}</span>
+                        </span>
+                      )}
                       {video.isLiveRecording ? (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 font-black border border-rose-200 flex items-center gap-1 shrink-0">
                           <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>

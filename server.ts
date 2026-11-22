@@ -45,12 +45,15 @@ const USERS_FILE = path.join(RECORDINGS_DIR, "users.json");
 interface StoredAuthUser {
   id: string;
   username: string;
+  email?: string;
   name: string;
   role: "student" | "teacher" | "admin";
   gradeLevel?: string;
   teachingSubject?: string;
   schoolOrCity: string;
   passwordHash: string;
+  authProvider?: "password" | "google";
+  googleUid?: string;
   createdAt: string;
 }
 
@@ -82,6 +85,7 @@ function hashPassword(password: string): string {
 }
 
 function verifyPassword(password: string, storedHash: string): boolean {
+  if (!storedHash) return false;
   const parts = storedHash.split(":");
   if (parts.length !== 2) return false;
   const [salt, keyHex] = parts;
@@ -95,6 +99,7 @@ function toPublicUser(u: StoredAuthUser) {
   return {
     id: u.id,
     username: u.username,
+    email: u.email,
     name: u.name,
     role: u.role,
     gradeLevel: u.gradeLevel,
@@ -102,6 +107,47 @@ function toPublicUser(u: StoredAuthUser) {
     schoolOrCity: u.schoolOrCity,
   };
 }
+
+const SINGLE_ADMIN_ID = "admin-primary";
+
+function getAdminCredentials() {
+  const username = (process.env.ADMIN_USERNAME || "hayma")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  const password = process.env.ADMIN_PASSWORD || "hayab2121";
+  return { username: username || "hayma", password };
+}
+
+function ensureSingleAdminAccount() {
+  const { username, password } = getAdminCredentials();
+  const existingUsers = getStoredAuthUsers();
+
+  // Keep only non-admin users so strictly 1 admin account exists in the system
+  const nonAdmins = existingUsers.filter(
+    (u) => u.role !== "admin" && u.username.toLowerCase() !== username
+  );
+  const existingPrimary = existingUsers.find(
+    (u) => u.id === SINGLE_ADMIN_ID || (u.role === "admin" && u.username.toLowerCase() === username)
+  );
+
+  const needsPasswordUpdate =
+    !existingPrimary || !verifyPassword(password, existingPrimary.passwordHash);
+
+  const adminUser: StoredAuthUser = {
+    id: SINGLE_ADMIN_ID,
+    username,
+    name: existingPrimary?.name || "System Administrator",
+    role: "admin",
+    schoolOrCity: existingPrimary?.schoolOrCity || "Ministry Portal HQ",
+    passwordHash: needsPasswordUpdate ? hashPassword(password) : existingPrimary.passwordHash,
+    createdAt: existingPrimary?.createdAt || new Date().toISOString(),
+  };
+
+  saveStoredAuthUsers([adminUser, ...nonAdmins]);
+}
+
+ensureSingleAdminAccount();
 
 // Module-level live room state for WebSocket and REST status synchronization
 export interface LiveRoomState {
@@ -246,14 +292,69 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-// Authentication API: Register a new user with username + password
+function getFirebaseWebApiKey(): string | null {
+  try {
+    const cfgPath = path.join(process.cwd(), "firebase-applet-config.json");
+    if (fs.existsSync(cfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+      return typeof cfg?.apiKey === "string" && cfg.apiKey ? cfg.apiKey : null;
+    }
+  } catch (e) {
+    console.warn("Could not read firebase-applet-config.json:", e);
+  }
+  return null;
+}
+
+async function verifyFirebaseIdToken(idToken: string): Promise<{
+  localId: string;
+  email: string;
+  emailVerified: boolean;
+  displayName?: string;
+} | null> {
+  const apiKey = getFirebaseWebApiKey();
+  if (!apiKey || !idToken) return null;
+  try {
+    const resp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+    if (!resp.ok) return null;
+    const data: any = await resp.json();
+    const first = Array.isArray(data?.users) ? data.users[0] : null;
+    if (!first?.localId || !first?.email) return null;
+    return {
+      localId: String(first.localId),
+      email: String(first.email).trim().toLowerCase(),
+      emailVerified: Boolean(first.emailVerified),
+      displayName: first.displayName ? String(first.displayName) : undefined,
+    };
+  } catch (err) {
+    console.error("Firebase token verification error:", err);
+    return null;
+  }
+}
+
+// Authentication API: Register a new student or teacher account (admin registration is strictly disabled)
 app.post("/api/auth/register", (req, res) => {
   try {
-    const { name, username, password, role, gradeLevel, teachingSubject, schoolOrCity } = req.body || {};
+    const { name, username, email, password, role, gradeLevel, teachingSubject, schoolOrCity } = req.body || {};
     const cleanName = String(name || "").trim();
     const cleanUsername = String(username || "").trim().toLowerCase().replace(/\s+/g, "");
+    const cleanEmail = String(email || "").trim().toLowerCase();
     const cleanPassword = String(password || "");
-    const cleanRole = role === "teacher" || role === "admin" ? role : "student";
+    const requestedRole = String(role || "student").trim().toLowerCase();
+
+    if (requestedRole === "admin") {
+      return res.status(403).json({
+        error: "Admin registration is disabled. Only the single system administrator account is permitted.",
+      });
+    }
+
+    const cleanRole: "student" | "teacher" = requestedRole === "teacher" ? "teacher" : "student";
     const cleanSubject = String(teachingSubject || "").trim();
 
     if (!cleanName) {
@@ -261,6 +362,13 @@ app.post("/api/auth/register", (req, res) => {
     }
     if (!cleanUsername || cleanUsername.length < 3) {
       return res.status(400).json({ error: "Username must be at least 3 characters (no spaces)." });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({ error: "Please enter a valid email address." });
+    }
+    const { username: adminUsername } = getAdminCredentials();
+    if (cleanUsername === adminUsername) {
+      return res.status(409).json({ error: "This username is reserved. Please choose another username." });
     }
     if (cleanPassword.length < 4) {
       return res.status(400).json({ error: "Password must be at least 4 characters." });
@@ -273,16 +381,21 @@ app.post("/api/auth/register", (req, res) => {
     if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
       return res.status(409).json({ error: "Username is already taken. Please sign in or pick another." });
     }
+    if (users.some((u) => u.email && u.email.toLowerCase() === cleanEmail)) {
+      return res.status(409).json({ error: "An account with this email already exists. Please sign in instead." });
+    }
 
     const created: StoredAuthUser = {
       id: `usr-${Date.now()}`,
       username: cleanUsername,
+      email: cleanEmail,
       name: cleanName,
       role: cleanRole,
-      gradeLevel: cleanRole === "student" || cleanRole === "teacher" ? String(gradeLevel || "grade_12_natural") : undefined,
+      gradeLevel: String(gradeLevel || "grade_12_natural"),
       teachingSubject: cleanRole === "teacher" ? cleanSubject : undefined,
       schoolOrCity: String(schoolOrCity || "Ethiopia").trim() || "Ethiopia",
       passwordHash: hashPassword(cleanPassword),
+      authProvider: "password",
       createdAt: new Date().toISOString(),
     };
 
@@ -295,21 +408,33 @@ app.post("/api/auth/register", (req, res) => {
   }
 });
 
-// Authentication API: Login with username + password
+// Authentication API: Login with username or email + password
 app.post("/api/auth/login", (req, res) => {
   try {
-    const { username, password } = req.body || {};
-    const identifier = String(username || "").trim().toLowerCase();
+    const { identifier, username, email, password } = req.body || {};
+    const cleanIdentifier = String(identifier || username || email || "").trim().toLowerCase();
     const cleanPassword = String(password || "");
 
-    if (!identifier || !cleanPassword) {
-      return res.status(400).json({ error: "Username and password are required." });
+    if (!cleanIdentifier || !cleanPassword) {
+      return res.status(400).json({ error: "Username or email and password are required." });
     }
 
     const users = getStoredAuthUsers();
-    const match = users.find((u) => u.username.toLowerCase() === identifier);
-    if (!match || !verifyPassword(cleanPassword, match.passwordHash)) {
-      return res.status(401).json({ error: "Invalid username or password." });
+    const match = users.find(
+      (u) =>
+        u.username.toLowerCase() === cleanIdentifier ||
+        (u.email && u.email.toLowerCase() === cleanIdentifier)
+    );
+    if (!match) {
+      return res.status(401).json({ error: "Invalid username/email or password." });
+    }
+    if (!match.passwordHash && match.authProvider === "google") {
+      return res.status(401).json({
+        error: "This account was created with Google Sign-In. Please click 'Continue with Google'.",
+      });
+    }
+    if (!verifyPassword(cleanPassword, match.passwordHash)) {
+      return res.status(401).json({ error: "Invalid username/email or password." });
     }
 
     res.json({ success: true, user: toPublicUser(match) });
@@ -319,21 +444,835 @@ app.post("/api/auth/login", (req, res) => {
   }
 });
 
+// Authentication API: Sign in / Register via verified Google Sign-In (Firebase Auth ID token)
+app.post("/api/auth/google", async (req, res) => {
+  try {
+    const { idToken, role, gradeLevel, teachingSubject, schoolOrCity } = req.body || {};
+    const verified = await verifyFirebaseIdToken(String(idToken || ""));
+    if (!verified || !verified.emailVerified) {
+      return res.status(401).json({ error: "Could not verify Google account credentials." });
+    }
+
+    const users = getStoredAuthUsers();
+    const existing = users.find(
+      (u) =>
+        u.role !== "admin" &&
+        (u.googleUid === verified.localId ||
+          (u.email && u.email.toLowerCase() === verified.email))
+    );
+
+    if (existing) {
+      let changed = false;
+      if (!existing.googleUid) {
+        existing.googleUid = verified.localId;
+        changed = true;
+      }
+      if (!existing.email) {
+        existing.email = verified.email;
+        changed = true;
+      }
+      if (changed) saveStoredAuthUsers(users);
+      return res.json({ success: true, user: toPublicUser(existing), isNewUser: false });
+    }
+
+    const requestedRole = String(role || "student").trim().toLowerCase();
+    if (requestedRole === "admin") {
+      return res.status(403).json({ error: "Admin role cannot be assigned." });
+    }
+    const cleanRole: "student" | "teacher" = requestedRole === "teacher" ? "teacher" : "student";
+    const baseUsername = verified.email
+      .split("@")[0]
+      .replace(/[^a-z0-9._-]/g, "")
+      .slice(0, 18) || "learner";
+
+    let candidateUsername = baseUsername;
+    let suffix = 1;
+    while (users.some((u) => u.username.toLowerCase() === candidateUsername)) {
+      candidateUsername = `${baseUsername}${suffix++}`;
+    }
+
+    const created: StoredAuthUser = {
+      id: `usr-g-${verified.localId.slice(0, 14)}`,
+      username: candidateUsername,
+      email: verified.email,
+      name: verified.displayName || candidateUsername,
+      role: cleanRole,
+      gradeLevel: String(gradeLevel || "grade_12_natural"),
+      teachingSubject:
+        cleanRole === "teacher"
+          ? String(teachingSubject || "General Subjects").trim() || "General Subjects"
+          : undefined,
+      schoolOrCity: String(schoolOrCity || "Ethiopia").trim() || "Ethiopia",
+      passwordHash: "",
+      authProvider: "google",
+      googleUid: verified.localId,
+      createdAt: new Date().toISOString(),
+    };
+
+    users.push(created);
+    saveStoredAuthUsers(users);
+    res.status(201).json({ success: true, user: toPublicUser(created), isNewUser: true });
+  } catch (err) {
+    console.error("Google auth error:", err);
+    res.status(500).json({ error: "Google sign-in failed on server." });
+  }
+});
+
+// Complete or update role/grade profile for newly signed-in Google user
+app.post("/api/auth/google/complete-profile", async (req, res) => {
+  try {
+    const { idToken, role, gradeLevel, teachingSubject, schoolOrCity } = req.body || {};
+    const verified = await verifyFirebaseIdToken(String(idToken || ""));
+    if (!verified || !verified.emailVerified) {
+      return res.status(401).json({ error: "Invalid Google session token." });
+    }
+
+    const requestedRole = String(role || "student").trim().toLowerCase();
+    if (requestedRole === "admin") {
+      return res.status(403).json({ error: "Admin role cannot be assigned." });
+    }
+    const cleanRole: "student" | "teacher" = requestedRole === "teacher" ? "teacher" : "student";
+
+    const users = getStoredAuthUsers();
+    const idx = users.findIndex(
+      (u) =>
+        u.role !== "admin" &&
+        (u.googleUid === verified.localId ||
+          (u.email && u.email.toLowerCase() === verified.email))
+    );
+    if (idx < 0) {
+      return res.status(404).json({ error: "User profile not found." });
+    }
+
+    users[idx] = {
+      ...users[idx],
+      role: cleanRole,
+      gradeLevel: String(gradeLevel || users[idx].gradeLevel || "grade_12_natural"),
+      teachingSubject:
+        cleanRole === "teacher"
+          ? String(teachingSubject || users[idx].teachingSubject || "General Subjects").trim()
+          : undefined,
+      schoolOrCity: String(schoolOrCity || users[idx].schoolOrCity || "Ethiopia").trim() || "Ethiopia",
+    };
+
+    saveStoredAuthUsers(users);
+    res.json({ success: true, user: toPublicUser(users[idx]) });
+  } catch (err) {
+    console.error("Google profile completion error:", err);
+    res.status(500).json({ error: "Failed to save Google user profile." });
+  }
+});
+
+const VIDEO_VIEWS_FILE = path.join(RECORDINGS_DIR, "video_views.json");
+
+interface VideoViewRecord {
+  views: number;
+  viewers: string[];
+}
+
+function getStoredVideoViews(): Record<string, VideoViewRecord> {
+  try {
+    if (fs.existsSync(VIDEO_VIEWS_FILE)) {
+      const raw = fs.readFileSync(VIDEO_VIEWS_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+  } catch (e) {
+    console.warn("Could not read video views file:", e);
+  }
+  return {};
+}
+
+function saveStoredVideoViews(map: Record<string, VideoViewRecord>) {
+  try {
+    fs.writeFileSync(VIDEO_VIEWS_FILE, JSON.stringify(map, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Could not write video views file:", e);
+  }
+}
+
+// Get real view counts for all videos
+app.get("/api/videos/views", (_req, res) => {
+  const viewsMap = getStoredVideoViews();
+  const counts: Record<string, number> = {};
+  for (const [id, rec] of Object.entries(viewsMap)) {
+    counts[id] = typeof rec?.views === "number" ? rec.views : 0;
+  }
+  res.json({ success: true, views: counts });
+});
+
+// Record a real video view (deduplicated per logged-in viewerId)
+app.post("/api/videos/:id/view", (req, res) => {
+  try {
+    const videoId = String(req.params.id || "").trim();
+    if (!videoId) {
+      return res.status(400).json({ error: "Video ID is required." });
+    }
+    const viewerId = String(req.body?.viewerId || "").trim();
+    const viewsMap = getStoredVideoViews();
+    const current = viewsMap[videoId] || { views: 0, viewers: [] };
+
+    if (viewerId) {
+      if (!current.viewers.includes(viewerId)) {
+        current.viewers.push(viewerId);
+        current.views = Math.max(current.views + 1, current.viewers.length);
+      }
+    } else {
+      current.views += 1;
+    }
+
+    viewsMap[videoId] = current;
+    saveStoredVideoViews(viewsMap);
+
+    // Also update stored recording metadata if applicable
+    const recordings = getStoredRecordings();
+    let changed = false;
+    const updatedRecordings = recordings.map((r) => {
+      if (r.id === videoId || `vid-${r.id}` === videoId || r.id === videoId.replace(/^vid-/, "")) {
+        changed = true;
+        return { ...r, views: current.views };
+      }
+      return r;
+    });
+    if (changed) {
+      saveStoredRecordings(updatedRecordings);
+    }
+
+    res.json({ success: true, videoId, views: current.views });
+  } catch (err) {
+    console.error("Error recording video view:", err);
+    res.status(500).json({ error: "Failed to record video view." });
+  }
+});
+
+// ==================== VIDEO MEMBERSHIP & 2-FREE LIMIT ====================
+const SUBSCRIPTIONS_FILE = path.join(RECORDINGS_DIR, "subscriptions.json");
+const FREE_VIDEO_LIMIT = 2;
+
+interface StoredMembership {
+  userId: string;
+  userName?: string;
+  videoPlan: "free" | "pending_approval" | "premium";
+  freeVideosUnlockedIds: string[];
+  videoPaidAt?: string;
+  videoPaymentMethod?: string;
+  videoPaymentRef?: string;
+  approvedAt?: string;
+}
+
+function getStoredMemberships(): Record<string, StoredMembership> {
+  try {
+    if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
+      const raw = fs.readFileSync(SUBSCRIPTIONS_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+  } catch (e) {
+    console.warn("Could not read subscriptions file:", e);
+  }
+  return {};
+}
+
+function saveStoredMemberships(map: Record<string, StoredMembership>) {
+  try {
+    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(map, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Could not write subscriptions file:", e);
+  }
+}
+
+function getOrCreateMembership(userId: string): StoredMembership {
+  const map = getStoredMemberships();
+  if (!map[userId]) {
+    map[userId] = {
+      userId,
+      videoPlan: "free",
+      freeVideosUnlockedIds: [],
+    };
+    saveStoredMemberships(map);
+  }
+  return map[userId];
+}
+
+app.get("/api/membership/:userId", (req, res) => {
+  const userId = String(req.params.userId || "").trim();
+  if (!userId) return res.status(400).json({ error: "User ID required." });
+  const membership = getOrCreateMembership(userId);
+  res.json({ success: true, membership, freeLimit: FREE_VIDEO_LIMIT });
+});
+
+app.post("/api/videos/:id/access", (req, res) => {
+  try {
+    const videoId = String(req.params.id || "").trim();
+    const userId = String(req.body?.userId || "").trim();
+    const role = String(req.body?.role || "student").trim().toLowerCase();
+
+    if (!videoId || !userId) {
+      return res.status(400).json({ error: "Video ID and user ID are required." });
+    }
+
+    if (role === "admin" || role === "teacher") {
+      return res.json({
+        success: true,
+        allowed: true,
+        unlimited: true,
+        freeRemaining: FREE_VIDEO_LIMIT,
+      });
+    }
+
+    const map = getStoredMemberships();
+    const membership: StoredMembership = map[userId] || {
+      userId,
+      videoPlan: "free",
+      freeVideosUnlockedIds: [],
+    };
+
+    if (membership.videoPlan === "premium") {
+      return res.json({
+        success: true,
+        allowed: true,
+        unlimited: true,
+        membership,
+      });
+    }
+
+    if (membership.freeVideosUnlockedIds.includes(videoId)) {
+      return res.json({
+        success: true,
+        allowed: true,
+        unlimited: false,
+        freeRemaining: Math.max(0, FREE_VIDEO_LIMIT - membership.freeVideosUnlockedIds.length),
+        membership,
+      });
+    }
+
+    if (membership.freeVideosUnlockedIds.length < FREE_VIDEO_LIMIT) {
+      membership.freeVideosUnlockedIds.push(videoId);
+      map[userId] = membership;
+      saveStoredMemberships(map);
+      return res.json({
+        success: true,
+        allowed: true,
+        unlimited: false,
+        freeRemaining: Math.max(0, FREE_VIDEO_LIMIT - membership.freeVideosUnlockedIds.length),
+        membership,
+      });
+    }
+
+    if (membership.videoPlan === "pending_approval") {
+      return res.status(402).json({
+        success: false,
+        allowed: false,
+        requiresPayment: false,
+        pendingApproval: true,
+        freeRemaining: 0,
+        membership,
+        error: "Your payment has been submitted and is waiting for Admin approval.",
+      });
+    }
+
+    return res.status(402).json({
+      success: false,
+      allowed: false,
+      requiresPayment: true,
+      pendingApproval: false,
+      freeRemaining: 0,
+      membership,
+      error: "You have used your 2 free video lessons. Please upgrade to continue watching.",
+    });
+  } catch (err) {
+    console.error("Video access check failed:", err);
+    res.status(500).json({ error: "Failed to verify video access." });
+  }
+});
+
+app.post("/api/membership/upgrade-videos", (req, res) => {
+  try {
+    const { userId, userName, paymentMethod, paymentRef } = req.body || {};
+    const cleanUserId = String(userId || "").trim();
+    const cleanUserName = String(userName || "").trim();
+    const cleanMethod = String(paymentMethod || "Telebirr").trim();
+    const cleanRef = String(paymentRef || "").trim();
+
+    if (!cleanUserId) {
+      return res.status(400).json({ error: "User ID is required." });
+    }
+    if (cleanRef.length < 4) {
+      return res.status(400).json({ error: "Please enter a valid payment transaction reference or phone number." });
+    }
+
+    const map = getStoredMemberships();
+    const current = map[cleanUserId] || {
+      userId: cleanUserId,
+      videoPlan: "free" as const,
+      freeVideosUnlockedIds: [],
+    };
+
+    const updated: StoredMembership = {
+      ...current,
+      userName: cleanUserName || current.userName,
+      videoPlan: current.videoPlan === "premium" ? "premium" : "pending_approval",
+      videoPaidAt: new Date().toISOString(),
+      videoPaymentMethod: cleanMethod,
+      videoPaymentRef: cleanRef,
+    };
+
+    map[cleanUserId] = updated;
+    saveStoredMemberships(map);
+    res.json({ success: true, membership: updated });
+  } catch (err) {
+    console.error("Video upgrade payment failed:", err);
+    res.status(500).json({ error: "Failed to process video membership upgrade." });
+  }
+});
+
+app.get("/api/admin/video-upgrades", (_req, res) => {
+  const map = getStoredMemberships();
+  const users = getStoredAuthUsers();
+  const upgrades = Object.values(map)
+    .filter((m) => m.videoPlan === "pending_approval" || m.videoPlan === "premium" || Boolean(m.videoPaidAt))
+    .map((m) => {
+      const matchedUser = users.find((u) => u.id === m.userId);
+      return {
+        ...m,
+        userName: m.userName || matchedUser?.name || m.userId,
+      };
+    })
+    .sort((a, b) => (b.videoPaidAt || "").localeCompare(a.videoPaidAt || ""));
+  res.json({ success: true, upgrades });
+});
+
+app.post("/api/admin/video-upgrades/:userId/approve", (req, res) => {
+  try {
+    const userId = String(req.params.userId || "").trim();
+    const approve = req.body?.approve !== false;
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required." });
+    }
+
+    const map = getStoredMemberships();
+    const current = map[userId];
+    if (!current) {
+      return res.status(404).json({ error: "Student membership record not found." });
+    }
+
+    const updated: StoredMembership = approve
+      ? {
+          ...current,
+          videoPlan: "premium",
+          approvedAt: new Date().toISOString(),
+        }
+      : {
+          ...current,
+          videoPlan: "free",
+          approvedAt: undefined,
+          videoPaidAt: undefined,
+          videoPaymentMethod: undefined,
+          videoPaymentRef: undefined,
+        };
+
+    map[userId] = updated;
+    saveStoredMemberships(map);
+    res.json({ success: true, membership: updated });
+  } catch (err) {
+    console.error("Admin video upgrade approval error:", err);
+    res.status(500).json({ error: "Failed to update video approval status." });
+  }
+});
+
+// ==================== PERSONAL TUTOR ASSIGNMENT & PAID ACCESS ====================
+const TUTOR_REQUESTS_FILE = path.join(RECORDINGS_DIR, "tutor_requests.json");
+
+interface StoredTutorMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: "student" | "teacher" | "admin";
+  text: string;
+  createdAt: string;
+}
+
+interface StoredTutorAssignment {
+  id: string;
+  studentId: string;
+  studentName: string;
+  gradeLevel: string;
+  subject: string;
+  goalNote: string;
+  preferredSchedule: string;
+  assignedTeacherId?: string;
+  assignedTeacherName?: string;
+  assignedTeacherSubject?: string;
+  isPaid: boolean;
+  adminApproved: boolean;
+  approvedAt?: string;
+  planType: "monthly_tutor" | "intensive_exam";
+  amountBirr: number;
+  paymentMethod?: string;
+  paymentRef?: string;
+  paidAt?: string;
+  status: "pending_payment" | "pending_approval" | "awaiting_assignment" | "assigned" | "active";
+  messages: StoredTutorMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+const DEFAULT_FACULTY_TEACHERS = [
+  {
+    id: "faculty-birhanu",
+    name: "Ato Birhanu Tadesse",
+    subject: "Physics & Mechanics",
+    gradeLevel: "grade_12_natural",
+    schoolOrCity: "Addis Ababa Science Faculty",
+  },
+  {
+    id: "faculty-selamawit",
+    name: "Dr. Selamawit Bekele",
+    subject: "Mathematics & Computer Science",
+    gradeLevel: "university_exit",
+    schoolOrCity: "Addis Ababa University Mentor",
+  },
+  {
+    id: "faculty-ahmed",
+    name: "Ustaz Ahmed Nur",
+    subject: "Mathematics & Regional Prep",
+    gradeLevel: "grade_8",
+    schoolOrCity: "Dire Dawa / Harar Prep Center",
+  },
+  {
+    id: "faculty-mekdes",
+    name: "W/ro Mekdes Alemu",
+    subject: "Biology & Chemistry",
+    gradeLevel: "grade_12_natural",
+    schoolOrCity: "Bahir Dar Stem Academy",
+  },
+];
+
+function getStoredTutorAssignments(): StoredTutorAssignment[] {
+  try {
+    if (fs.existsSync(TUTOR_REQUESTS_FILE)) {
+      const raw = fs.readFileSync(TUTOR_REQUESTS_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((a) => ({
+          ...a,
+          adminApproved: Boolean(a.adminApproved),
+        }));
+      }
+    }
+  } catch (e) {
+    console.warn("Could not read tutor requests file:", e);
+  }
+  return [];
+}
+
+function saveStoredTutorAssignments(list: StoredTutorAssignment[]) {
+  try {
+    fs.writeFileSync(TUTOR_REQUESTS_FILE, JSON.stringify(list, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Could not write tutor requests file:", e);
+  }
+}
+
+app.get("/api/tutors/teachers", (_req, res) => {
+  const registeredTeachers = getStoredAuthUsers()
+    .filter((u) => u.role === "teacher")
+    .map((u) => ({
+      id: u.id,
+      name: u.name,
+      subject: u.teachingSubject || "General Subjects",
+      gradeLevel: u.gradeLevel || "grade_12_natural",
+      schoolOrCity: u.schoolOrCity || "Ethiopia",
+    }));
+
+  const seen = new Set(registeredTeachers.map((t) => t.name.toLowerCase()));
+  const merged = [
+    ...registeredTeachers,
+    ...DEFAULT_FACULTY_TEACHERS.filter((f) => !seen.has(f.name.toLowerCase())),
+  ];
+  res.json({ success: true, teachers: merged });
+});
+
+app.get("/api/tutors/my", (req, res) => {
+  const userId = String(req.query.userId || "").trim();
+  const role = String(req.query.role || "student").trim().toLowerCase();
+  const userName = String(req.query.userName || "").trim().toLowerCase();
+  const all = getStoredTutorAssignments();
+
+  if (role === "admin") {
+    return res.json({ success: true, assignments: all });
+  }
+  if (role === "teacher") {
+    const mine = all.filter(
+      (a) =>
+        a.assignedTeacherId === userId ||
+        (userName && a.assignedTeacherName?.toLowerCase() === userName)
+    );
+    return res.json({ success: true, assignments: mine });
+  }
+  const mine = all.filter((a) => a.studentId === userId);
+  res.json({ success: true, assignments: mine });
+});
+
+app.post("/api/tutors/request", (req, res) => {
+  try {
+    const {
+      studentId,
+      studentName,
+      gradeLevel,
+      subject,
+      goalNote,
+      preferredSchedule,
+      planType,
+      preferredTeacherId,
+      preferredTeacherName,
+      preferredTeacherSubject,
+    } = req.body || {};
+
+    if (!studentId || !studentName || !subject) {
+      return res.status(400).json({ error: "Student details and subject are required." });
+    }
+
+    const cleanPlan: "monthly_tutor" | "intensive_exam" =
+      planType === "intensive_exam" ? "intensive_exam" : "monthly_tutor";
+    const amountBirr = cleanPlan === "intensive_exam" ? 1800 : 850;
+    const now = new Date().toISOString();
+
+    const newReq: StoredTutorAssignment = {
+      id: `tut-${Date.now()}`,
+      studentId: String(studentId),
+      studentName: String(studentName).trim(),
+      gradeLevel: String(gradeLevel || "grade_12_natural"),
+      subject: String(subject).trim(),
+      goalNote: String(goalNote || "").trim() || "Personal exam guidance and weekly topic review.",
+      preferredSchedule: String(preferredSchedule || "Weekdays Evening (5:00 PM - 7:00 PM)").trim(),
+      assignedTeacherId: preferredTeacherId ? String(preferredTeacherId) : undefined,
+      assignedTeacherName: preferredTeacherName ? String(preferredTeacherName) : undefined,
+      assignedTeacherSubject: preferredTeacherSubject ? String(preferredTeacherSubject) : undefined,
+      isPaid: false,
+      adminApproved: false,
+      planType: cleanPlan,
+      amountBirr,
+      status: "pending_payment",
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const all = getStoredTutorAssignments();
+    all.unshift(newReq);
+    saveStoredTutorAssignments(all);
+    res.status(201).json({ success: true, assignment: newReq });
+  } catch (err) {
+    console.error("Failed to create tutor request:", err);
+    res.status(500).json({ error: "Failed to submit tutor request." });
+  }
+});
+
+app.post("/api/tutors/:requestId/pay", (req, res) => {
+  try {
+    const requestId = String(req.params.requestId || "").trim();
+    const { paymentMethod, paymentRef } = req.body || {};
+    const cleanRef = String(paymentRef || "").trim();
+    const cleanMethod = String(paymentMethod || "Telebirr").trim();
+
+    if (cleanRef.length < 4) {
+      return res.status(400).json({ error: "Please enter a valid transaction reference or phone number." });
+    }
+
+    const all = getStoredTutorAssignments();
+    const idx = all.findIndex((a) => a.id === requestId);
+    if (idx < 0) {
+      return res.status(404).json({ error: "Tutor request not found." });
+    }
+
+    const existing = all[idx];
+    const hasTeacher = Boolean(existing.assignedTeacherId && existing.assignedTeacherName);
+    const updated: StoredTutorAssignment = {
+      ...existing,
+      isPaid: true,
+      paymentMethod: cleanMethod,
+      paymentRef: cleanRef,
+      paidAt: new Date().toISOString(),
+      status: existing.adminApproved && hasTeacher ? "active" : "pending_approval",
+      updatedAt: new Date().toISOString(),
+    };
+
+    all[idx] = updated;
+    saveStoredTutorAssignments(all);
+    res.json({ success: true, assignment: updated });
+  } catch (err) {
+    console.error("Tutor payment error:", err);
+    res.status(500).json({ error: "Failed to process tutoring payment." });
+  }
+});
+
+app.post("/api/tutors/:requestId/assign", (req, res) => {
+  try {
+    const requestId = String(req.params.requestId || "").trim();
+    const { teacherId, teacherName, teacherSubject } = req.body || {};
+    if (!teacherId || !teacherName) {
+      return res.status(400).json({ error: "Teacher selection is required." });
+    }
+
+    const all = getStoredTutorAssignments();
+    const idx = all.findIndex((a) => a.id === requestId);
+    if (idx < 0) {
+      return res.status(404).json({ error: "Tutor request not found." });
+    }
+
+    const existing = all[idx];
+    const updated: StoredTutorAssignment = {
+      ...existing,
+      assignedTeacherId: String(teacherId),
+      assignedTeacherName: String(teacherName),
+      assignedTeacherSubject: String(teacherSubject || existing.subject),
+      status: existing.isPaid
+        ? existing.adminApproved
+          ? "active"
+          : "pending_approval"
+        : "assigned",
+      updatedAt: new Date().toISOString(),
+    };
+
+    all[idx] = updated;
+    saveStoredTutorAssignments(all);
+    res.json({ success: true, assignment: updated });
+  } catch (err) {
+    console.error("Tutor assignment error:", err);
+    res.status(500).json({ error: "Failed to assign teacher." });
+  }
+});
+
+app.post("/api/tutors/:requestId/approve", (req, res) => {
+  try {
+    const requestId = String(req.params.requestId || "").trim();
+    const { approve = true, teacherId, teacherName, teacherSubject } = req.body || {};
+
+    const all = getStoredTutorAssignments();
+    const idx = all.findIndex((a) => a.id === requestId);
+    if (idx < 0) {
+      return res.status(404).json({ error: "Tutor request not found." });
+    }
+
+    const existing = all[idx];
+    const nextTeacherId = teacherId ? String(teacherId) : existing.assignedTeacherId;
+    const nextTeacherName = teacherName ? String(teacherName) : existing.assignedTeacherName;
+    const nextTeacherSubject = teacherSubject
+      ? String(teacherSubject)
+      : existing.assignedTeacherSubject || existing.subject;
+
+    if (approve !== false) {
+      if (!existing.isPaid) {
+        return res.status(400).json({ error: "Student payment must be completed before Admin approval." });
+      }
+      if (!nextTeacherId || !nextTeacherName) {
+        return res.status(400).json({ error: "Please assign a teacher before approving." });
+      }
+    }
+
+    const isApproving = approve !== false;
+    const updated: StoredTutorAssignment = {
+      ...existing,
+      assignedTeacherId: nextTeacherId,
+      assignedTeacherName: nextTeacherName,
+      assignedTeacherSubject: nextTeacherSubject,
+      adminApproved: isApproving,
+      approvedAt: isApproving ? new Date().toISOString() : undefined,
+      status: isApproving ? "active" : existing.isPaid ? "pending_approval" : "pending_payment",
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (isApproving && updated.messages.length === 0 && updated.assignedTeacherId && updated.assignedTeacherName) {
+      updated.messages.push({
+        id: `tmsg-${Date.now()}`,
+        senderId: updated.assignedTeacherId,
+        senderName: updated.assignedTeacherName,
+        senderRole: "teacher",
+        text: `Welcome ${updated.studentName}! Your personal tutoring for ${updated.subject} has been approved by Admin and is now active. Send any question or topic you want to review first.`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    all[idx] = updated;
+    saveStoredTutorAssignments(all);
+    res.json({ success: true, assignment: updated });
+  } catch (err) {
+    console.error("Tutor approval error:", err);
+    res.status(500).json({ error: "Failed to update tutor approval status." });
+  }
+});
+
+app.post("/api/tutors/:requestId/messages", (req, res) => {
+  try {
+    const requestId = String(req.params.requestId || "").trim();
+    const { senderId, senderName, senderRole, text } = req.body || {};
+    const cleanText = String(text || "").trim();
+    if (!senderId || !cleanText) {
+      return res.status(400).json({ error: "Message text is required." });
+    }
+
+    const all = getStoredTutorAssignments();
+    const idx = all.findIndex((a) => a.id === requestId);
+    if (idx < 0) {
+      return res.status(404).json({ error: "Tutor assignment not found." });
+    }
+
+    const existing = all[idx];
+    if (!existing.isPaid) {
+      return res.status(402).json({
+        error: "Payment is required before communicating in this tutor room.",
+      });
+    }
+    if (!existing.adminApproved) {
+      return res.status(403).json({
+        error: "Admin approval is required before the student and teacher can communicate.",
+      });
+    }
+
+    const msg: StoredTutorMessage = {
+      id: `tmsg-${Date.now()}`,
+      senderId: String(senderId),
+      senderName: String(senderName || "User"),
+      senderRole: senderRole === "teacher" || senderRole === "admin" ? senderRole : "student",
+      text: cleanText,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated: StoredTutorAssignment = {
+      ...existing,
+      messages: [...(existing.messages || []), msg],
+      updatedAt: new Date().toISOString(),
+    };
+    all[idx] = updated;
+    saveStoredTutorAssignments(all);
+    res.status(201).json({ success: true, assignment: updated, message: msg });
+  } catch (err) {
+    console.error("Tutor message error:", err);
+    res.status(500).json({ error: "Failed to send tutor message." });
+  }
+});
+
 // Recordings & Video Lessons Archive API: List all server-saved video sessions
 app.get("/api/recordings", (_req, res) => {
+  const viewsMap = getStoredVideoViews();
   const records = getStoredRecordings()
     .filter((r) => r.archiveInLibrary !== false)
-    .map((r) => ({
-      ...r,
-      keyTakeaways: Array.isArray(r.keyTakeaways) ? r.keyTakeaways : [
-        "የቀጥታ ትምህርት ስላይድ እና ማስታወሻዎች",
-        "የመምህሩ የድምፅና የምስል ማብራሪያ",
-      ],
-      timestamps: Array.isArray(r.timestamps) && r.timestamps.length > 0 ? r.timestamps : [
-        { time: "00:00", label: "መግቢያ (Introduction)" },
-        { time: "01:00", label: "ዋና ማብራሪያ (Key Concept)" }
-      ],
-    }));
+    .map((r) => {
+      const tracked = viewsMap[r.id]?.views ?? viewsMap[`vid-${r.id}`]?.views;
+      return {
+        ...r,
+        views: typeof tracked === "number" ? tracked : 0,
+        keyTakeaways: Array.isArray(r.keyTakeaways) ? r.keyTakeaways : [
+          "የቀጥታ ትምህርት ስላይድ እና ማስታወሻዎች",
+          "የመምህሩ የድምፅና የምስል ማብራሪያ",
+        ],
+        timestamps: Array.isArray(r.timestamps) && r.timestamps.length > 0 ? r.timestamps : [
+          { time: "00:00", label: "መግቢያ (Introduction)" },
+          { time: "01:00", label: "ዋና ማብራሪያ (Key Concept)" }
+        ],
+      };
+    });
   res.json({ success: true, recordings: records });
 });
 
@@ -366,7 +1305,7 @@ app.post(
         duration: String(req.query.duration || "15:00"),
         level: String(req.query.level || "grade_12_natural"),
         chapter: String(req.query.chapter || "Curriculum Video Lesson"),
-        views: 1,
+        views: 0,
         isLiveRecording,
         archiveInLibrary,
         mimeType: mime,
@@ -422,7 +1361,7 @@ app.post("/api/recordings", (req, res) => {
       duration: duration || "15:00",
       level: level || "grade_12_natural",
       chapter: chapter || "National Examination Live Review",
-      views: 1,
+      views: 0,
       isLiveRecording: isLiveRecording !== undefined ? Boolean(isLiveRecording) : true,
       archiveInLibrary: archiveInLibrary !== undefined ? Boolean(archiveInLibrary) : true,
       mimeType: mime,
